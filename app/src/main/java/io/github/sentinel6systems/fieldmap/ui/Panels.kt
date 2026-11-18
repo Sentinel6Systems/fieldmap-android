@@ -366,7 +366,7 @@ class Panels(private val a: MainActivity) {
         box.addView(a.label("Away from this network"))
         if (info?.enabled == false || (info == null && a.remoteSwitchedOff)) {
             box.addView(a.body("Remote access is switched off on the box, on its Phones page. " +
-                (if (mine != null) "This phone stays paired for when it is switched on again." else "It can be paired once it is switched on."), muted = true))
+                (if (mine != null) "This phone stays paired for when it is switched on again." else "Switching it on there also opens pairing for this phone."), muted = true))
             return
         }
         if (mine != null) {

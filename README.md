@@ -104,11 +104,12 @@ and how far and in which direction it is from you. The screen stays on while the
 ### Away from home: pairing
 
 A fieldmap-server box lets phones that were paired on its own network use its maps from anywhere (its README,
-"Remote access for the Android app"). At home, on the box's network:
+"Remote access for the Android app"). It is off until the box's owner switches it on. At home, on the box's
+network:
 
-1. Unless the box was started in the last 15 minutes and has no phone yet, open the box's **Phones** page in a
-   browser (a tab in the header of its Maps page) and press **Pair a phone**.
-2. In the app: **Menu › Server › Pair this phone**, within ten minutes.
+1. On the box's **Phones** page (a tab in the header of its Maps page), press **Switch on**, or, if it is already
+   on, **Pair a phone**. Either opens pairing for ten minutes.
+2. In the app: **Menu › Server › Pair this phone**.
 
 That is all. Away from the box's network the strip at the top reads **Remote** instead of **Connected**, and the
 map loads as at home, only slower. With no internet it reads **Offline** and the saved areas work as before.
