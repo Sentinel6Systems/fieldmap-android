@@ -319,6 +319,9 @@ class MainActivity : AppCompatActivity() {
 
     /* ---------- where things sit ---------- */
 
+    /** Feet and miles where they are used on the road, else metres and kilometres. */
+    private val imperial = Locale.getDefault().country in setOf("US", "GB", "LR", "MM")
+
     private val sideways get() = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     /** Puts the strip, the buttons and the panel inside the screen's edges and cut-outs. */
@@ -577,7 +580,6 @@ class MainActivity : AppCompatActivity() {
         Location.distanceBetween(here.latitude, here.longitude, lat, lon, out)
         if (out[0] < 5) return "Where you are"
         val bearing = ((out[1] + 360) % 360).toInt()
-        val imperial = Locale.getDefault().country in setOf("US", "GB", "LR", "MM")
         val far = if (imperial) {
             val miles = out[0] / 1609.344
             if (miles < 0.1) "${(out[0] / 0.3048).toInt()} ft" else String.format(Locale.US, "%.1f mi", miles)
@@ -727,7 +729,12 @@ class MainActivity : AppCompatActivity() {
         if (follow != Follow.FREE) {
             if (here == null) { b.grid.text = "Waiting for GPS"; b.latlon.text = "No position yet"; return }
             b.grid.text = Utm.toMgrs(here.latitude, here.longitude) ?: "Outside the MGRS grid"
-            val accuracy = if (here.hasAccuracy()) " ±${here.accuracy.toInt()} m" else ""
+            // Rounded up, never "±0": feet where the scale bar is in feet and miles.
+            val accuracy = when {
+                !here.hasAccuracy() -> ""
+                imperial -> " ±${kotlin.math.ceil(here.accuracy / 0.3048).toInt().coerceAtLeast(1)} ft"
+                else -> " ±${kotlin.math.ceil(here.accuracy.toDouble()).toInt().coerceAtLeast(1)} m"
+            }
             b.latlon.text = String.format(Locale.US, "YOU%s · %.5f, %.5f", accuracy, here.latitude, here.longitude)
         } else {
             val c = m.cameraPosition.target ?: return
