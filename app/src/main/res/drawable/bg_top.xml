@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The strip at the top: the page colour with a rule under it. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape><solid android:color="@color/line" /></shape></item>
+    <item android:bottom="1dp"><shape><solid android:color="@color/bg" /></shape></item>
+</layer-list>

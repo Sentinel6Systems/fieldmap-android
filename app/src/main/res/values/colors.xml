@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The look of fieldmap-server's pages (ui/fieldmap.css), light. Dark is in values-night. -->
+<resources>
+    <color name="bg">#ecebe4</color>
+    <color name="panel">#f8f7f2</color>
+    <color name="panel2">#e3e2d9</color>
+    <color name="ink">#1a1e1a</color>
+    <color name="muted">#5d645b</color>
+    <color name="line">#cfcdc2</color>
+    <color name="edge">#a9a798</color>
+    <color name="sig">#4f6b1f</color>
+    <color name="on_sig">#ffffff</color>
+    <color name="warn">#9a2a1c</color>
+    <color name="amber">#8a5f00</color>
+    <!-- The launcher icon keeps the dark look in both. -->
+    <color name="icon_bg">#0e110f</color>
+    <color name="icon_fg">#a9c06a</color>
+</resources>

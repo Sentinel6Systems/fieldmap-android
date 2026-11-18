@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sized for a thumb, a car mount and gloves. -->
+    <dimen name="map_button">64dp</dimen>
+    <dimen name="control">56dp</dimen>
+    <dimen name="gap">10dp</dimen>
+</resources>

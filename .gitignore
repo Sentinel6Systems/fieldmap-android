@@ -1,0 +1,17 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+.DS_Store
+
+# Signing: never in the repository. See README, "Release builds".
+keystore.properties
+*.jks
+*.keystore
+
+# Build outputs
+*.apk
+*.aab
