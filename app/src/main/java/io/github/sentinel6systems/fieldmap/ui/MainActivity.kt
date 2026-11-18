@@ -11,7 +11,6 @@ import android.location.Location
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -162,7 +161,6 @@ class MainActivity : AppCompatActivity() {
         b.zoomIn.setOnClickListener { zoomBy(1.0) }
         b.zoomOut.setOnClickListener { zoomBy(-1.0) }
         b.position.setOnClickListener { positionPressed() }
-        b.mark.setOnClickListener { markPressed() }
         b.menu.setOnClickListener { panels.show(Screen.MENU) }
         b.panelClose.setOnClickListener { panels.show(Screen.NONE) }
         b.panelBack.setOnClickListener { panels.back() }
@@ -342,7 +340,7 @@ class MainActivity : AppCompatActivity() {
         // Upright, the buttons are a column up the right edge; on its side, a row along the bottom.
         b.controls.orientation = if (sideways) android.widget.LinearLayout.HORIZONTAL else android.widget.LinearLayout.VERTICAL
         b.controls.gravity = Gravity.BOTTOM or Gravity.END
-        for ((i, button) in listOf(b.zoomIn, b.zoomOut, b.position, b.mark).withIndex()) {
+        for ((i, button) in listOf(b.zoomIn, b.zoomOut, b.position).withIndex()) {
             val space = if (i == 0) 0 else if (i == 2) dp(22) else dp(10)
             button.updateLayoutParams<android.widget.LinearLayout.LayoutParams> { topMargin = if (sideways) 0 else space; leftMargin = if (sideways) space else 0 }
         }
@@ -530,28 +528,26 @@ class MainActivity : AppCompatActivity() {
 
     /* ---------- markers ---------- */
 
-    /** The Mark button: a marker where the phone is. */
-    private fun markPressed() {
-        val here = lastLocation()?.takeIf { SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos < FRESH_FIX_NS }
-            ?: return toast("No GPS position yet. To mark a spot, press and hold it on the map.")
-        mark(here.latitude, here.longitude)
-    }
-
     private fun mark(lat: Double, lon: Double) {
         val marker = markers.add(lat, lon, prefs.color)
         markersChanged()
         openMarker(marker.id, fromList = false)
     }
 
-    // Holding a finger on the map for two seconds marks the spot under it. Long enough not to
-    // happen by accident while moving the map; a ring around the finger shows it filling up.
+    // Holding a finger on the map for two seconds marks the spot under it: the one way to make
+    // a marker. Long enough not to happen by accident while moving the map; a ring around the
+    // finger shows it filling up.
     private var holdAt: PointF? = null
     private val holdDone = Runnable {
         val at = holdAt
         endHold()
-        val spot = at?.let { map?.projection?.fromScreenLocation(it) } ?: return@Runnable
+        val m = map ?: return@Runnable
+        val spot = at?.let(m.projection::fromScreenLocation) ?: return@Runnable
         b.map.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        mark(spot.latitude, spot.longitude)
+        // A finger on the position symbol means "where I am": take the position itself.
+        val here = lastLocation()?.let { LatLng(it.latitude, it.longitude) }
+        val onMe = here != null && m.projection.toScreenLocation(here).let { hypot(it.x - at.x, it.y - at.y) < dp(32) }
+        if (onMe && here != null) mark(here.latitude, here.longitude) else mark(spot.latitude, spot.longitude)
     }
 
     private fun watchHold(e: MotionEvent) {
@@ -855,8 +851,6 @@ class MainActivity : AppCompatActivity() {
         const val MARKER_SELECTED = "fm-markers-selected"
         /** How long a finger rests on the map to mark the spot. */
         const val HOLD_MS = 2000L
-        /** The Mark button takes a GPS position no older than this. */
-        const val FRESH_FIX_NS = 120_000_000_000L
         /** The map before any server is known: one plain colour. */
         const val BLANK = """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#000000"}}]}"""
     }

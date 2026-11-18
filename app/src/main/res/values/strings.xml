@@ -3,7 +3,6 @@
     <string name="app_name">Fieldmap</string>
     <string name="attribution">© OpenMapTiles © OpenStreetMap contributors</string>
     <string name="menu">Menu</string>
-    <string name="mark">Mark</string>
     <string name="follow">Follow</string>
     <string name="north_up">North up</string>
     <string name="head_up">Head up</string>

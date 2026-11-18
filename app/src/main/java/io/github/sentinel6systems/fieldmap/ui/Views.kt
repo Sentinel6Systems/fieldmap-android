@@ -22,12 +22,11 @@ import kotlin.math.floor
 import kotlin.math.log10
 import kotlin.math.pow
 
-/** A square button on the map: a symbol with a word under it. `android:tag="primary"` fills it green. */
+/** A square button on the map: a symbol with a word under it. */
 @SuppressLint("ResourceType")
 class MapButton @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : LinearLayout(context, attrs) {
     private val icon = ImageView(context)
     private val caption = TextView(context)
-    private val primary get() = tag == "primary"
 
     init {
         orientation = VERTICAL
@@ -35,7 +34,7 @@ class MapButton @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         isClickable = true
         isFocusable = true
         elevation = context.dp(3).toFloat()
-        setBackgroundResource(if (primary) R.drawable.bg_primary else R.drawable.bg_control)
+        setBackgroundResource(R.drawable.bg_control)
         addView(icon, LayoutParams(context.dp(28), context.dp(28)))
         caption.typeface = Typeface.MONOSPACE
         caption.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
@@ -57,7 +56,7 @@ class MapButton @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         caption.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
         if (text.isNotEmpty()) contentDescription = text
         isSelected = on
-        val c = context.color(if (primary) R.color.on_sig else if (on) R.color.sig else R.color.ink)
+        val c = context.color(if (on) R.color.sig else R.color.ink)
         icon.imageTintList = ColorStateList.valueOf(c)
         caption.setTextColor(c)
     }

@@ -83,7 +83,7 @@ class Panels(private val a: MainActivity) {
         val open = next != Screen.NONE
         a.b.panel.visibility = if (open) View.VISIBLE else View.GONE
         // With a panel open only the zoom buttons stay on the map.
-        for (v in listOf(a.b.position, a.b.mark, a.b.menu, a.b.foot)) v.visibility = if (open) View.GONE else View.VISIBLE
+        for (v in listOf(a.b.position, a.b.menu, a.b.foot)) v.visibility = if (open) View.GONE else View.VISIBLE
         a.b.frame.visibility = if (next == Screen.SAVE) View.VISIBLE else View.GONE
         a.b.panelTitle.text = next.title
         val hasBack = next.parent != null || (next == Screen.MARKER && markerFromList)
@@ -263,7 +263,7 @@ class Panels(private val a: MainActivity) {
 
     private fun markers() {
         val list = a.markers.markers
-        if (list.isEmpty()) add(a.body("No markers yet. To mark a spot, press and hold it on the map for two seconds. Mark puts one where you are.", muted = true, top = 12))
+        if (list.isEmpty()) add(a.body("No markers yet. To mark a spot, press and hold it on the map for two seconds. Hold the blue dot to mark where you are.", muted = true, top = 12))
         for (m in list.asReversed()) {
             val where = Utm.toMgrs(m.lat, m.lon, 4) ?: String.format(Locale.US, "%.5f, %.5f", m.lat, m.lon)
             add(a.row(m.label.ifEmpty { "(no name)" }, where, dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
