@@ -66,6 +66,9 @@ object Net {
         return null
     }
 
+    /** Back to the phone's own choice of network: the remote link goes over the internet. */
+    fun untie() { if (tied != null) tie(null) }
+
     /** Runs a search on the local network itself; stays tied to it only if `search` found something. */
     suspend fun <T> onLocal(network: Network, search: suspend () -> List<T>): List<T> {
         val before = tied

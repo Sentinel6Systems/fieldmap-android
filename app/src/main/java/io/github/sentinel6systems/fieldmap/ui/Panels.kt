@@ -17,6 +17,8 @@ import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.Palette
 import io.github.sentinel6systems.fieldmap.geo.Utm
 import io.github.sentinel6systems.fieldmap.offline.Areas
+import io.github.sentinel6systems.fieldmap.remote.RemoteAccess
+import io.github.sentinel6systems.fieldmap.remote.RemoteInfo
 import io.github.sentinel6systems.fieldmap.offline.Estimate
 import io.github.sentinel6systems.fieldmap.offline.SavedArea
 import io.github.sentinel6systems.fieldmap.offline.StyleSources
@@ -66,6 +68,7 @@ class Panels(private val a: MainActivity) {
     // The Server screen's moving parts.
     private var serverText: TextView? = null
     private var serverFound: LinearLayout? = null
+    private var serverRemote: LinearLayout? = null
     private var serverBusy = false
 
     fun back() = show(if (screen == Screen.MARKER && markerFromList) Screen.MARKERS else screen.parent ?: Screen.NONE)
@@ -100,7 +103,7 @@ class Panels(private val a: MainActivity) {
         when (screen) {
             Screen.MENU, Screen.STYLES, Screen.AREAS, Screen.MARKERS -> build()
             Screen.SAVE -> estimate()
-            Screen.SERVER -> if (!serverBusy) serverText?.text = serverState()
+            Screen.SERVER -> if (!serverBusy) { serverText?.text = serverState(); if (a.remoteNow || !a.reachable) remoteSection(null) }
             else -> {}
         }
     }
@@ -325,6 +328,7 @@ class Panels(private val a: MainActivity) {
 
     private fun serverState(): String = when {
         a.prefs.server == null -> "Fieldmap shows the maps of a fieldmap-server box. On its network, connect once and save the areas you need. They then work anywhere, with no network."
+        a.remoteNow -> "Connected through the remote link. ${a.prefs.styles.size} map style${if (a.prefs.styles.size == 1) "" else "s"}."
         a.reachable -> "Connected. ${a.prefs.styles.size} map style${if (a.prefs.styles.size == 1) "" else "s"}."
         else -> "Out of reach now. Saved areas still work."
     }
@@ -339,6 +343,50 @@ class Panels(private val a: MainActivity) {
         add(address)
         add(a.buttons(a.button("Find on this network") { find() }, a.button("Connect", Kind.PRIMARY) { go() }))
         serverFound = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; layoutParams = lp(top = a.dp(8)) }.also(::add)
+        serverRemote = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; layoutParams = lp() }.also(::add)
+        remoteSection(null)
+        // On the server's own network, ask it whether it offers remote access.
+        val base = a.prefs.server
+        if (base != null && a.reachable && !a.remoteNow) a.scope.launch {
+            val info = RemoteAccess.info(base)
+            if (screen == Screen.SERVER && base == a.prefs.server) remoteSection(info)
+        }
+    }
+
+    /**
+     * The remote link: one button, offered on the server's own network when the server has
+     * it; afterwards what state it is in. `info` is what the server said, null when it was
+     * not asked (away from its network) or has no remote access.
+     */
+    private fun remoteSection(info: RemoteInfo?) {
+        val box = serverRemote ?: return
+        box.removeAllViews()
+        val mine = a.enrolment()
+        if (mine == null && info?.ready != true) return
+        box.addView(a.label("Away from this network"))
+        if (mine != null) {
+            box.addView(a.body(when {
+                a.remoteNow -> "This phone is using the remote link now."
+                (info?.host ?: mine.host) == null -> "This phone has been let in, but the server cannot be reached from outside yet. Its owner switches that on, on the server."
+                else -> "Remote access is set up. Away from this network the app reaches the server by itself."
+            }, muted = true))
+            box.addView(a.button("Remove from this phone", Kind.DANGER) { a.removeRemote(); remoteSection(info) }.apply { layoutParams = lp(top = a.dp(10)) })
+            return
+        }
+        box.addView(a.body("Let this phone use the server's maps from anywhere. It can only be set up here, on the server's own network.", muted = true))
+        val code = if (info?.pin == true) a.field("The server's code", "", max = 64) { hideKeyboard() }.apply { layoutParams = lp(top = a.dp(10)) }.also(box::addView) else null
+        val said = a.body("", top = 8).apply { setTextColor(a.color(R.color.warn)); visibility = View.GONE }
+        val button = a.button("Set up remote access") {}
+        button.setOnClickListener {
+            hideKeyboard()
+            button.enable(false)
+            a.setUpRemote(code?.text?.toString()) { wrong ->
+                if (screen != Screen.SERVER) return@setUpRemote
+                if (wrong == null) remoteSection(info) else { button.enable(true); said.text = wrong; said.visibility = View.VISIBLE }
+            }
+        }
+        box.addView(button.apply { layoutParams = lp(top = a.dp(10)) })
+        box.addView(said)
     }
 
     private fun busy(message: String) {

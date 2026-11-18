@@ -16,6 +16,9 @@ with gloves. It is not a route planner: it shows where you are, it does not give
   heading-up. The grid reference (MGRS) and latitude/longitude are always at the top.
 - **Markers**: hold a finger on a spot for two seconds and it is marked. Name the dot and pick one of twelve
   colours. They are the markers of the box's print tool, and the two can exchange them as a file.
+- **Away from home, while there is internet**: a box that offers it lets a phone in with one button press on
+  its own network. From then on the app reaches the box from anywhere, over an encrypted link that only phones
+  the box has let in can use.
 - **Nothing else**: no account, no advertising, no analytics. The app talks only to the server you give it.
 
 It works with any [TileServer GL](https://github.com/maptiler/tileserver-gl) server that offers vector styles;
@@ -98,6 +101,25 @@ position exactly.
 Tap a marker to rename it, change its colour, move it to the crosshair, delete it, or read its grid reference
 and how far and in which direction it is from you. The screen stays on while the map follows you.
 
+### Away from home: the remote link
+
+If the box's owner has set up remote access (fieldmap-server's `scripts/remote.sh`), the Server panel shows
+**Away from this network** while you are on the box's network:
+
+1. **Menu › Server › Set up remote access.** One press; if the box asks for a code, type it first.
+2. That is all. Away from the box's network the strip at the top reads **Remote** instead of **Connected**, and
+   the map loads as it does at home, only slower. With no internet it reads **Offline** and the saved areas work
+   as before.
+
+What happens: the app makes a key in the phone's key store, where it cannot be read out again, and the box gives
+it a certificate for that key. Away from home the app connects to the box's gateway with it and trusts only the
+box's own certificate there. The box is told the phone's make and model, so that its owner can tell the phones
+on the list apart. The owner can remove a phone at any time; the app then says so, and it can be set up again
+on the box's network. **Remove from this phone** forgets the link on the phone.
+
+This is not a system VPN: nothing else on the phone uses it, no VPN icon appears, and another VPN on the phone
+keeps working. The remote link goes through a relay with a bandwidth limit, so save areas at home.
+
 ### Markers and the print tool
 
 **Menu › Markers › Save to a file** writes the markers as a GeoJSON file. The print tool of fieldmap-server
@@ -160,6 +182,11 @@ It was then put on a Google Pixel phone (Android 16) and checked by hand and ove
   in the `topo-usgs` style: the 120 tiles the app counted were the 120 in the phone's database, from all five
   tile sets of the style
 
+The remote link was tested on the emulator against fieldmap-server's gateway reached directly: setting up with
+one press, the switch to **Remote** when the home address went away, new tiles fetched with the phone's
+certificate and stored under the home address, a phone removed on the box being told so, and setting it up again.
+Not tested yet: the same through Tailscale Funnel, and on a real phone.
+
 The unit tests cover the grid references (against the print tool's own results), the markers file, address
 handling and tile counting.
 
@@ -171,7 +198,8 @@ phones without Google services.
 | Path | What it is |
 |---|---|
 | `app/src/main/java/.../ui/` | The one screen (`MainActivity`), its panels (`Panels`), and the pieces they are built from (`Ui`, `Views`) |
-| `.../server/` | Talking to the tile server: its styles, its tile sets, finding it on the network |
+| `.../server/` | Talking to the tile server: its styles, its tile sets, finding it on the network, and which way requests travel (`Http`) |
+| `.../remote/` | The remote link: the phone's key, being let in by the box, the connection to its gateway |
 | `.../offline/` | Saved areas on top of MapLibre's offline regions; counting tiles and estimating sizes |
 | `.../data/` | Markers and their file format |
 | `.../geo/` | UTM and MGRS; the GPS source |
@@ -194,6 +222,6 @@ artwork was taken from them.
 - Map data: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL); tile schema:
   [OpenMapTiles](https://openmaptiles.org/). The app shows this line on the map.
 - Map drawing and offline storage: [MapLibre Native](https://github.com/maplibre/maplibre-native) (BSD 2-Clause)
-- AndroidX libraries and Kotlin coroutines (Apache License 2.0)
+- AndroidX libraries, Kotlin coroutines and [OkHttp](https://github.com/square/okhttp) (Apache License 2.0)
 
 The code in this repository is under the MIT license. See [LICENSE](LICENSE).

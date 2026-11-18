@@ -39,9 +39,9 @@ object Finder {
     /** The tile server on one host, if any: the web port first (it has every page behind it). */
     private suspend fun probe(host: String): Found? {
         if (open(host, 80)) {
-            for (base in listOf("http://$host/", "http://$host/maps/")) TileServer.styles(base, 1500)?.let { return Found(base, it) }
+            for (base in listOf("http://$host/", "http://$host/maps/")) TileServer.styles(base, 1500, Route.LAN)?.let { return Found(base, it) }
         }
-        if (open(host, 8080)) TileServer.styles("http://$host:8080/", 1500)?.let { return Found("http://$host:8080/", it) }
+        if (open(host, 8080)) TileServer.styles("http://$host:8080/", 1500, Route.LAN)?.let { return Found("http://$host:8080/", it) }
         return null
     }
 

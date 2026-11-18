@@ -52,6 +52,9 @@ android {
 
 dependencies {
     implementation("org.maplibre.gl:android-sdk:13.7.1")
+    // The HTTP client MapLibre uses, at MapLibre's version: the app gives the map its own
+    // client, so that the map's requests can go through the remote link too.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

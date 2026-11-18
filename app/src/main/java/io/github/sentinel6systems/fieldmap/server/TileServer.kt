@@ -7,8 +7,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 
 /** One map style of a server. */
 data class MapStyle(val id: String, val name: String, val url: String)
@@ -45,13 +43,13 @@ object TileServer {
         JSONArray().apply { styles.forEach { put(JSONObject().put("id", it.id).put("name", it.name)) } }.toString()
 
     /** The styles of the server at `base`, or null when no tile server answers there. */
-    suspend fun styles(base: String, timeoutMs: Int = 2500): List<MapStyle>? = withContext(Dispatchers.IO) {
-        get("${base}styles.json", timeoutMs)?.let { parseStyles(it, base) }
+    suspend fun styles(base: String, timeoutMs: Int = 2500, way: Route? = null): List<MapStyle>? = withContext(Dispatchers.IO) {
+        get("${base}styles.json", timeoutMs, way)?.let { parseStyles(it, base) }
     }
 
     /** Tries the places a typed address can mean; the first tile server that answers. */
     suspend fun connect(typed: String): Found? = Net.reach {
-        ServerAddress.candidates(typed).firstNotNullOfOrNull { base -> styles(base, 4000)?.let { Found(base, it) } }
+        ServerAddress.candidates(typed).firstNotNullOfOrNull { base -> styles(base, 4000, Route.LAN)?.let { Found(base, it) } }
     }
 
     /** Reads a style and the TileJSON of each of its sources. Null when the server does not answer. */
@@ -86,28 +84,24 @@ object TileServer {
     /** The size of one file as it travels (compressed), 0 when the server has nothing there. */
     suspend fun size(url: String): Long = withContext(Dispatchers.IO) {
         try {
-            val c = open(url, 4000)
-            c.setRequestProperty("Accept-Encoding", "gzip")
-            try {
-                if (c.responseCode != 200) return@withContext 0L
+            // Asking for gzip ourselves keeps the answer as it travels: that is what is stored.
+            Http.call(url, 4000) { header("Accept-Encoding", "gzip") }.use { r ->
+                if (r.code != 200) return@withContext 0L
                 var n = 0L
                 val buf = ByteArray(16384)
-                c.inputStream.use { s -> while (true) { val r = s.read(buf); if (r < 0) break; n += r } }
+                r.body?.byteStream()?.use { s -> while (true) { val got = s.read(buf); if (got < 0) break; n += got } }
                 n
-            } finally { c.disconnect() }
+            }
         } catch (e: Exception) { 0L }
     }
 
-    private fun open(url: String, timeoutMs: Int): HttpURLConnection =
-        (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = timeoutMs
-            readTimeout = timeoutMs
-            useCaches = false
-        }
+    /** The status a request ends with, or null when nothing answers. */
+    suspend fun status(url: String, timeoutMs: Int, way: Route? = null): Int? = withContext(Dispatchers.IO) {
+        try { Http.call(url, timeoutMs, way).use { it.code } } catch (e: Exception) { null }
+    }
 
-    /** The text at an address, or null on any failure. */
-    fun get(url: String, timeoutMs: Int): String? = try {
-        val c = open(url, timeoutMs)
-        try { if (c.responseCode == 200) c.inputStream.use { it.readBytes().toString(Charsets.UTF_8) } else null } finally { c.disconnect() }
+    /** The text at an address, or null on any failure. `way` sends it one way whatever is in use. */
+    fun get(url: String, timeoutMs: Int, way: Route? = null): String? = try {
+        Http.call(url, timeoutMs, way).use { r -> if (r.code == 200) r.body?.string() else null }
     } catch (e: Exception) { null }
 }

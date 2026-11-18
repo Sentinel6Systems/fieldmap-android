@@ -10,7 +10,9 @@ import android.graphics.RectF
 import android.location.Location
 import android.os.Bundle
 import android.os.Handler
+import android.os.Build
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -37,9 +39,13 @@ import io.github.sentinel6systems.fieldmap.offline.Areas
 import io.github.sentinel6systems.fieldmap.offline.Box
 import io.github.sentinel6systems.fieldmap.offline.SavedArea
 import io.github.sentinel6systems.fieldmap.offline.bytesText
+import io.github.sentinel6systems.fieldmap.remote.Enrolment
+import io.github.sentinel6systems.fieldmap.remote.RemoteAccess
 import io.github.sentinel6systems.fieldmap.server.Found
+import io.github.sentinel6systems.fieldmap.server.Http
 import io.github.sentinel6systems.fieldmap.server.MapStyle
 import io.github.sentinel6systems.fieldmap.server.Net
+import io.github.sentinel6systems.fieldmap.server.Route
 import io.github.sentinel6systems.fieldmap.server.TileServer
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
@@ -57,6 +63,7 @@ import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
+import org.maplibre.android.module.http.HttpRequestUtil
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.Layer
@@ -134,12 +141,15 @@ class MainActivity : AppCompatActivity() {
     private var keyboard = 0
     private var lastAreasDraw = 0L
     private var mapPadding = DoubleArray(4)         // left, top, right, bottom
+    private var remoteChecked = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
         // Until the server has answered, the map reads only what is on the phone.
         MapLibre.setConnected(false)
+        // The map sends its requests through the app's own client, and so through the remote link too.
+        HttpRequestUtil.setOkHttpClient(Http.client)
         Net.start(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         b = ActivityMainBinding.inflate(layoutInflater)
@@ -148,6 +158,7 @@ class MainActivity : AppCompatActivity() {
         WindowCompat.getInsetsController(window, b.root).isAppearanceLightStatusBars = !night
 
         prefs = Prefs(this)
+        applyRemote()
         markers = MarkerStore(File(filesDir, "markers.geojson"))
         areas = Areas(this)
         panels = Panels(this)
@@ -424,17 +435,36 @@ class MainActivity : AppCompatActivity() {
 
     /* ---------- the server ---------- */
 
-    /** Asks the server for its styles: this is how the app knows whether it is in reach. */
+    /**
+     * Asks the server for its styles: this is how the app knows whether it is in reach. First
+     * the way it is reached at home; if nothing answers there and this phone has been let in,
+     * through the remote link.
+     */
     internal fun probe() {
         val base = prefs.server
         if (base == null || probing) return
         probing = true
         scope.launch {
-            val styles = Net.reach { TileServer.styles(base) }
+            var way = Route.LAN
+            var styles = Net.reach { TileServer.styles(base, way = Route.LAN) }
+            if (styles == null && Http.remote != null) {
+                Net.untie()
+                way = Route.REMOTE
+                styles = TileServer.styles(base, 8000, Route.REMOTE)
+                // The gateway answers "forbidden" to a phone its owner took off the list.
+                if (styles == null && TileServer.status("${base}styles.json", 8000, Route.REMOTE) == 403 && base == prefs.server) {
+                    removeRemote()
+                    toast("The server no longer lets this phone in from outside. Set it up again on the server's network.")
+                }
+            }
             probing = false
             if (base != prefs.server) return@launch
             if (!styles.isNullOrEmpty()) prefs.styles = styles
+            val changed = styles != null && Http.route != way
+            if (styles != null) Http.route = way
             setReachable(styles != null)
+            if (changed) { updateStatus(); panels.refresh() }
+            if (styles != null && way == Route.LAN) refreshRemote(base)
         }
     }
 
@@ -452,11 +482,63 @@ class MainActivity : AppCompatActivity() {
         panels.refresh()
     }
 
+    /* ---------- the remote link ---------- */
+
+    /** True while the server is reached through the remote link. */
+    internal val remoteNow get() = reachable && Http.route == Route.REMOTE
+
+    /** What this phone was given by the server it is set to, if it has been let in there. */
+    internal fun enrolment(): Enrolment? = prefs.enrolment?.takeIf { it.home == prefs.server }
+
+    /** Tells the client where home is and, when this phone has been let in, where the gateway is. */
+    private fun applyRemote() {
+        Http.setHome(prefs.server)
+        Http.remote = enrolment()?.let(RemoteAccess::end)
+    }
+
+    /** At home, now and then: has the server's address from outside changed? */
+    private fun refreshRemote(base: String) {
+        val mine = enrolment() ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (now - remoteChecked < REMOTE_CHECK_MS && remoteChecked != 0L) return
+        remoteChecked = now
+        scope.launch {
+            val info = RemoteAccess.info(base) ?: return@launch
+            if (base != prefs.server || (info.host == mine.host && info.port == mine.port)) return@launch
+            prefs.enrolment = mine.copy(host = info.host, port = info.port)
+            applyRemote()
+            panels.refresh()
+        }
+    }
+
+    /** Asks the server to let this phone in. `done` gets null, or what went wrong in the server's words. */
+    internal fun setUpRemote(code: String?, done: (String?) -> Unit) {
+        val base = prefs.server ?: return done("Connect to a server first.")
+        scope.launch {
+            try {
+                prefs.enrolment = RemoteAccess.enrol(base, "${Build.MANUFACTURER} ${Build.MODEL}".trim(), code)
+                applyRemote()
+                done(null)
+            } catch (e: RemoteAccess.Refused) {
+                done(e.message)
+            }
+        }
+    }
+
+    /** Forgets the remote link on this phone. The server keeps the phone on its list until its owner removes it. */
+    internal fun removeRemote() {
+        prefs.enrolment = null
+        applyRemote()
+        Http.route = Route.LAN
+    }
+
     /** A server answered at the address typed or found: use it from now on. */
     internal fun useServer(found: Found) {
         val first = prefs.server != found.base
         prefs.server = found.base
         prefs.styles = found.styles
+        Http.route = Route.LAN
+        applyRemote()
         setReachable(true)
         updateStatus()
         showStyle()
@@ -483,6 +565,7 @@ class MainActivity : AppCompatActivity() {
         val (text, colour) = when {
             saving != null -> "Saving ${saving.percent}%" to R.color.amber
             prefs.server == null -> "No server" to R.color.muted
+            remoteNow -> "Remote" to R.color.sig
             reachable -> "Connected" to R.color.sig
             else -> "Offline" to R.color.muted
         }
@@ -849,6 +932,8 @@ class MainActivity : AppCompatActivity() {
         const val MARKERS = "fm-markers"
         const val MARKER_DOTS = "fm-markers-dot"
         const val MARKER_SELECTED = "fm-markers-selected"
+        /** How often, at home, the app asks whether the server's address from outside changed. */
+        const val REMOTE_CHECK_MS = 600_000L
         /** How long a finger rests on the map to mark the spot. */
         const val HOLD_MS = 2000L
         /** The map before any server is known: one plain colour. */
