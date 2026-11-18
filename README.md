@@ -14,14 +14,15 @@ with gloves. It is not a route planner: it shows where you are, it does not give
   comes along: the tiles of every layer (base map, contours, hillshade), the style, the fonts and the symbols.
 - **Where you are**: the phone's GPS position on the map, with one button to follow it north-up or
   heading-up. The grid reference (MGRS) and latitude/longitude are always at the top.
-- **Markers**: one press drops a dot at your position or at the crosshair. Name it and pick one of twelve
-  colours. They are the markers of the box's print tool, and the two can exchange them as a file.
+- **Markers**: hold a finger on a spot for two seconds and it is marked; one press of Mark marks where you
+  are. Name the dot and pick one of twelve colours. They are the markers of the box's print tool, and the two
+  can exchange them as a file.
 - **Nothing else**: no account, no advertising, no analytics. The app talks only to the server you give it.
 
 It works with any [TileServer GL](https://github.com/maptiler/tileserver-gl) server that offers vector styles;
 it was made for fieldmap-server and looks like its pages.
 
-Status: first version, 0.1.0. Tested on an emulator (see "What was tested"). Needs Android 8.0 or newer.
+Status: first version, 0.1.0. Tested on an emulator and one phone (see "What was tested"). Needs Android 8.0 or newer.
 
 ## Install
 
@@ -87,9 +88,12 @@ Open the app. The strip at the top says **Offline** and the map draws from what 
 | Button | What it does |
 |---|---|
 | **Follow** | Shows where you are and keeps the map on you, north up. Press again: the direction you are heading is up (by the direction of travel when driving, by the compass when walking). Drag the map to let go. |
-| **Mark** | Drops a marker: where you are while the map follows you, otherwise at the crosshair. It gets the next name (P1, P2, ...) and the colour you used last; change them in the panel that opens, or just close it. |
+| **Mark** | Drops a marker where you are (it needs a GPS position). It gets the next name (P1, P2, ...) and the colour you used last; change them in the panel that opens, or just close it. |
 | **+ −** | Zoom. Pinching and double-tapping work too. |
 | **Menu** | Map style, saved areas, markers, server. |
+
+**To mark any other spot, press and hold it on the map for two seconds.** A ring fills around your finger; when
+it is full the marker is there and its panel opens.
 
 Tap a marker to rename it, change its colour, move it to the crosshair, delete it, or read its grid reference
 and how far and in which direction it is from you. The screen stays on while the map follows you.
@@ -147,12 +151,20 @@ with sample data of a small country:
 - the position from a simulated GPS, following, heading-up, upright and on its side, light and dark
 - markers, and the markers file read by the code of fieldmap-server's print tool
 
+It was then put on a Google Pixel phone (Android 16) and checked by hand and over adb:
+
+- positions came from the satellite receiver once a second, the first about five seconds after the network's
+  rough one; the app let go of the receiver when it left the screen
+- following, heading-up by the compass, the Mark button and marking by holding the map
+- connecting to a fieldmap-server box behind Internet-in-a-Box (`/maps/`) over Wi-Fi, and saving an area from it
+  in the `topo-usgs` style: the 120 tiles the app counted were the 120 in the phone's database, from all five
+  tile sets of the style
+
 The unit tests cover the grid references (against the print tool's own results), the markers file, address
 handling and tile counting.
 
-Not tested yet: a real phone, real GPS reception and the compass, a download from a box over real Wi-Fi
-(including a box whose Wi-Fi has no internet), a download of several gigabytes, and phones without Google
-services.
+Not tested yet: a box whose Wi-Fi has no internet, a download of several gigabytes, a long drive or hike, and
+phones without Google services.
 
 ## Layout of the code
 

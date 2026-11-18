@@ -1,5 +1,6 @@
 package io.github.sentinel6systems.fieldmap.ui
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
@@ -11,6 +12,7 @@ import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.animation.LinearInterpolator
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -155,5 +157,51 @@ class ScaleBarView @JvmOverloads constructor(context: Context, attrs: AttributeS
         }
         canvas.drawText(label, x0 + context.dp(6), y - context.dp(6), textHalo)
         canvas.drawText(label, x0 + context.dp(6), y - context.dp(6), text)
+    }
+}
+
+/**
+ * The ring that fills around a finger resting on the map: when it is full, the spot is
+ * marked. It appears only after a moment, so that a tap or a drag shows nothing.
+ */
+class HoldView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
+    private var x = 0f
+    private var y = 0f
+    private var filled = 0f
+    private var running: ValueAnimator? = null
+    private val radius = context.dp(40).toFloat()
+    private val under = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = context.dp(8).toFloat(); color = 0xCCFFFFFF.toInt() }
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = context.dp(5).toFloat(); color = context.color(R.color.sig) }
+    private val box = RectF()
+
+    fun start(atX: Float, atY: Float, millis: Long) {
+        stop()
+        x = atX
+        y = atY
+        running = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = millis
+            interpolator = LinearInterpolator()
+            addUpdateListener { filled = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    fun stop() {
+        running?.cancel()
+        running = null
+        filled = 0f
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        if (filled < SHOWN_FROM) return
+        box.set(x - radius, y - radius, x + radius, y + radius)
+        canvas.drawOval(box, under)
+        canvas.drawArc(box, -90f, 360f * (filled - SHOWN_FROM) / (1 - SHOWN_FROM), false, ring)
+    }
+
+    private companion object {
+        /** The part of the wait that passes before anything is drawn. */
+        const val SHOWN_FROM = 0.15f
     }
 }

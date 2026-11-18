@@ -263,7 +263,7 @@ class Panels(private val a: MainActivity) {
 
     private fun markers() {
         val list = a.markers.markers
-        if (list.isEmpty()) add(a.body("No markers yet. Press Mark on the map to drop one at the crosshair, or where you are while the map follows you.", muted = true, top = 12))
+        if (list.isEmpty()) add(a.body("No markers yet. To mark a spot, press and hold it on the map for two seconds. Mark puts one where you are.", muted = true, top = 12))
         for (m in list.asReversed()) {
             val where = Utm.toMgrs(m.lat, m.lon, 4) ?: String.format(Locale.US, "%.5f, %.5f", m.lat, m.lon)
             add(a.row(m.label.ifEmpty { "(no name)" }, where, dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })

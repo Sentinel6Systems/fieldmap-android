@@ -11,7 +11,10 @@ import android.location.Location
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -88,6 +91,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.hypot
 
 /** How the map follows the phone's position. */
 enum class Follow { FREE, NORTH, HEADING }
@@ -152,6 +156,8 @@ class MainActivity : AppCompatActivity() {
         b.map.onCreate(savedInstanceState)
         b.map.addOnDidFailLoadingMapListener { pendingStyle?.let(::styleMissing) }
         b.map.getMapAsync(::setUpMap)
+        @SuppressLint("ClickableViewAccessibility")       // watches only; the map still gets every touch
+        b.map.setOnTouchListener { _, e -> watchHold(e); false }
 
         b.zoomIn.setOnClickListener { zoomBy(1.0) }
         b.zoomOut.setOnClickListener { zoomBy(-1.0) }
@@ -524,13 +530,47 @@ class MainActivity : AppCompatActivity() {
 
     /* ---------- markers ---------- */
 
+    /** The Mark button: a marker where the phone is. */
     private fun markPressed() {
-        val m = map ?: return
-        val here = lastLocation()?.takeIf { follow != Follow.FREE }
-        val at = if (here != null) LatLng(here.latitude, here.longitude) else m.cameraPosition.target ?: return
-        val marker = markers.add(at.latitude, at.longitude, prefs.color)
+        val here = lastLocation()?.takeIf { SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos < FRESH_FIX_NS }
+            ?: return toast("No GPS position yet. To mark a spot, press and hold it on the map.")
+        mark(here.latitude, here.longitude)
+    }
+
+    private fun mark(lat: Double, lon: Double) {
+        val marker = markers.add(lat, lon, prefs.color)
         markersChanged()
         openMarker(marker.id, fromList = false)
+    }
+
+    // Holding a finger on the map for two seconds marks the spot under it. Long enough not to
+    // happen by accident while moving the map; a ring around the finger shows it filling up.
+    private var holdAt: PointF? = null
+    private val holdDone = Runnable {
+        val at = holdAt
+        endHold()
+        val spot = at?.let { map?.projection?.fromScreenLocation(it) } ?: return@Runnable
+        b.map.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        mark(spot.latitude, spot.longitude)
+    }
+
+    private fun watchHold(e: MotionEvent) {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> if (map != null && panels.screen != Screen.SAVE) {
+                holdAt = PointF(e.x, e.y)
+                b.hold.start(e.x, e.y, HOLD_MS)
+                b.map.postDelayed(holdDone, HOLD_MS)
+            }
+            // A finger does not keep perfectly still for two seconds; one that travels is moving the map.
+            MotionEvent.ACTION_MOVE -> holdAt?.let { if (hypot(e.x - it.x, e.y - it.y) > dp(14)) endHold() }
+            else -> endHold()                       // lifted, or a second finger
+        }
+    }
+
+    private fun endHold() {
+        holdAt = null
+        b.map.removeCallbacks(holdDone)
+        b.hold.stop()
     }
 
     private fun tapped(at: LatLng): Boolean {
@@ -813,6 +853,10 @@ class MainActivity : AppCompatActivity() {
         const val MARKERS = "fm-markers"
         const val MARKER_DOTS = "fm-markers-dot"
         const val MARKER_SELECTED = "fm-markers-selected"
+        /** How long a finger rests on the map to mark the spot. */
+        const val HOLD_MS = 2000L
+        /** The Mark button takes a GPS position no older than this. */
+        const val FRESH_FIX_NS = 120_000_000_000L
         /** The map before any server is known: one plain colour. */
         const val BLANK = """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#000000"}}]}"""
     }

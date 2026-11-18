@@ -18,6 +18,11 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
+    <io.github.sentinel6systems.fieldmap.ui.HoldView
+        android:id="@+id/hold"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
     <ImageView
         android:id="@+id/crosshair"
         android:layout_width="44dp"
