@@ -1,5 +1,6 @@
 package io.github.sentinel6systems.fieldmap.server
 
+import io.github.sentinel6systems.fieldmap.remote.Endpoint
 import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -13,8 +14,12 @@ import java.util.concurrent.TimeUnit
 /** The way requests for the server travel: on its own network, or through the remote link. */
 enum class Route { LAN, REMOTE }
 
-/** Where the server's gateway is from outside, and the client that may talk to it. */
-class RemoteEnd(val host: String, val port: Int, val client: OkHttpClient)
+/** Where the box's gateway may be from outside, the one that answered last, and the client that may talk to it. */
+class RemoteEnd(val endpoints: List<Endpoint>, val client: OkHttpClient) {
+    @Volatile
+    var current = 0
+    val endpoint: Endpoint get() = endpoints[current.coerceIn(0, endpoints.size - 1)]
+}
 
 /**
  * Every request of the app, the map's included, goes through one client. The app always
@@ -69,7 +74,7 @@ object Http {
         // tile server writes that into its answers as it does at home.
         val authority = if (home.port == HttpUrl.defaultPort(home.scheme)) home.host else "${home.host}:${home.port}"
         val out = request.newBuilder()
-            .url(url.newBuilder().scheme("https").host(remote.host).port(remote.port).build())
+            .url(url.newBuilder().scheme("https").host(remote.endpoint.host.trim('[', ']')).port(remote.endpoint.port).build())
             .header("X-Fieldmap-Host", authority)
             .header("X-Fieldmap-Proto", home.scheme)
             .build()

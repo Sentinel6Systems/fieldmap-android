@@ -142,6 +142,9 @@ class MainActivity : AppCompatActivity() {
     private var lastAreasDraw = 0L
     private var mapPadding = DoubleArray(4)         // left, top, right, bottom
     private var remoteChecked = 0L
+    /** The box's gateway said remote access is switched off (its Phones page). */
+    internal var remoteSwitchedOff = false
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -447,14 +450,29 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             var way = Route.LAN
             var styles = Net.reach { TileServer.styles(base, way = Route.LAN) }
-            if (styles == null && Http.remote != null) {
+            val end = Http.remote
+            if (styles == null && end != null) {
                 Net.untie()
                 way = Route.REMOTE
-                styles = TileServer.styles(base, 8000, Route.REMOTE)
-                // The gateway answers "forbidden" to a phone its owner took off the list.
-                if (styles == null && TileServer.status("${base}styles.json", 8000, Route.REMOTE) == 403 && base == prefs.server) {
-                    removeRemote()
-                    toast("The server no longer lets this phone in from outside. Set it up again on the server's network.")
+                // Each address the box gave, the one that answered last first.
+                val order = listOf(end.current) + end.endpoints.indices.filter { it != end.current }
+                for (i in order) {
+                    end.current = i
+                    styles = TileServer.styles(base, 6000, Route.REMOTE)
+                    if (styles != null) break
+                    // The gateway answers 403 to a phone its owner removed on the box, and 401 to
+                    // everyone while remote access is switched off on the box's Phones page.
+                    val answer = TileServer.status("${base}styles.json", 6000, Route.REMOTE)
+                    if (answer == 403 && base == prefs.server) {
+                        removeRemote()
+                        toast("The box no longer lets this phone in from outside. Pair it again on the box's network.")
+                        break
+                    }
+                    if (answer == 401) {
+                        if (!remoteSwitchedOff) toast("Remote access is switched off on the box.")
+                        remoteSwitchedOff = true
+                        break
+                    }
                 }
             }
             probing = false
@@ -462,6 +480,7 @@ class MainActivity : AppCompatActivity() {
             if (!styles.isNullOrEmpty()) prefs.styles = styles
             val changed = styles != null && Http.route != way
             if (styles != null) Http.route = way
+            if (styles != null) remoteSwitchedOff = false
             setReachable(styles != null)
             if (changed) { updateStatus(); panels.refresh() }
             if (styles != null && way == Route.LAN) refreshRemote(base)
@@ -496,7 +515,7 @@ class MainActivity : AppCompatActivity() {
         Http.remote = enrolment()?.let(RemoteAccess::end)
     }
 
-    /** At home, now and then: has the server's address from outside changed? */
+    /** At home, now and then: have the box's addresses from outside changed? */
     private fun refreshRemote(base: String) {
         val mine = enrolment() ?: return
         val now = SystemClock.elapsedRealtime()
@@ -504,8 +523,8 @@ class MainActivity : AppCompatActivity() {
         remoteChecked = now
         scope.launch {
             val info = RemoteAccess.info(base) ?: return@launch
-            if (base != prefs.server || (info.host == mine.host && info.port == mine.port)) return@launch
-            prefs.enrolment = mine.copy(host = info.host, port = info.port)
+            if (base != prefs.server || (info.endpoints == mine.endpoints && info.reach == mine.reach)) return@launch
+            prefs.enrolment = mine.copy(endpoints = info.endpoints, reach = info.reach)
             applyRemote()
             panels.refresh()
         }
@@ -513,10 +532,11 @@ class MainActivity : AppCompatActivity() {
 
     /** Asks the server to let this phone in. `done` gets null, or what went wrong in the server's words. */
     internal fun setUpRemote(code: String?, done: (String?) -> Unit) {
-        val base = prefs.server ?: return done("Connect to a server first.")
+        val base = prefs.server ?: return done("Connect to the box first.")
         scope.launch {
             try {
-                prefs.enrolment = RemoteAccess.enrol(base, "${Build.MANUFACTURER} ${Build.MODEL}".trim(), code)
+                val paired = RemoteAccess.enrol(base, "${Build.MANUFACTURER} ${Build.MODEL}".trim(), code)
+                prefs.enrolment = paired.copy(reach = RemoteAccess.info(base)?.reach.orEmpty())
                 applyRemote()
                 done(null)
             } catch (e: RemoteAccess.Refused) {

@@ -27,11 +27,32 @@ import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509ExtendedKeyManager
 import javax.net.ssl.X509TrustManager
 
-/** What the server gave this phone when it let it in. `host` is null while the server cannot be reached from outside. */
-data class Enrolment(val home: String, val id: String, val certificate: String, val ca: String, val host: String?, val port: Int)
+/** One address the box's gateway may be reached at from outside. `host` is a name, an IPv4 address or an IPv6 address in brackets. */
+data class Endpoint(val host: String, val port: Int)
 
-/** What the server says about remote access, asked on its own network. */
-class RemoteInfo(val ready: Boolean, val pin: Boolean, val host: String?, val port: Int)
+/** What the box gave this phone when it paired it, and where its gateway was last seen from home. */
+data class Enrolment(
+    val home: String,
+    val id: String,
+    val certificate: String,
+    val ca: String,
+    val gatewayName: String,
+    val endpoints: List<Endpoint>,
+    /** What the box said last about being reached from outside, in its own words. */
+    val reach: String = "",
+)
+
+/** What the box says about remote access, asked on its own network. */
+class RemoteInfo(val ready: Boolean, val enabled: Boolean, val pin: Boolean, val pairingOpen: Boolean, val endpoints: List<Endpoint>, val reach: String, val reachStatus: String)
+
+/** Endpoints to and from the box's JSON: [{"host": ..., "port": ...}]. */
+fun endpointsFrom(list: org.json.JSONArray?): List<Endpoint> =
+    (0 until (list?.length() ?: 0)).mapNotNull { i ->
+        list?.optJSONObject(i)?.let { o -> o.optString("host").takeIf { it.isNotBlank() }?.let { Endpoint(it, o.optInt("port")) } }
+    }.filter { it.port in 1..65535 }
+
+fun endpointsTo(list: List<Endpoint>): org.json.JSONArray =
+    org.json.JSONArray().apply { list.forEach { put(JSONObject().put("host", it.host).put("port", it.port)) } }
 
 /**
  * Remote access to a fieldmap-server box (its tools/remote-server.py). On the box's own
@@ -44,9 +65,6 @@ class RemoteInfo(val ready: Boolean, val pin: Boolean, val host: String?, val po
 object RemoteAccess {
     private const val KEY = "fieldmap-device"
     private const val STORE = "AndroidKeyStore"
-    /** The name in the certificate of every box's gateway. */
-    private const val GATEWAY_NAME = "fieldmap-box"
-
     class Refused(message: String, val wantsCode: Boolean = false) : Exception(message)
 
     /** Where a server answers about remote access: beside the maps, on the web port. */
@@ -64,8 +82,11 @@ object RemoteAccess {
                 Http.call(address, 4000, Route.LAN).use { r ->
                     val o = if (r.code == 200) JSONObject(r.body?.string().orEmpty()) else null
                     if (o?.optString("service") == "fieldmap-remote") {
-                        val remote = o.optJSONObject("remote")
-                        return@withContext RemoteInfo(o.optBoolean("ready"), o.optBoolean("pin"), remote?.optString("host")?.ifEmpty { null }, remote?.optInt("port") ?: 0)
+                        val reach = o.optJSONObject("reach")
+                        return@withContext RemoteInfo(
+                            o.optBoolean("ready"), o.optBoolean("enabled", true), o.optBoolean("pin"), o.optJSONObject("pairing")?.optBoolean("open") == true,
+                            endpointsFrom(o.optJSONArray("endpoints")), reach?.optString("text").orEmpty(), reach?.optString("status").orEmpty(),
+                        )
                     }
                 }
             } catch (e: Exception) { /* try the next place */ }
@@ -83,14 +104,14 @@ object RemoteAccess {
                 Http.call(address, 15000, Route.LAN) { post(body.toString().toRequestBody("application/json".toMediaType())) }.use { r ->
                     val o = try { JSONObject(r.body?.string().orEmpty()) } catch (e: Exception) { JSONObject() }
                     if (r.code == 200 && o.has("certificate")) {
-                        val remote = o.optJSONObject("remote")
-                        return@withContext Enrolment(base, o.optString("id"), o.getString("certificate"), o.getString("ca"), remote?.optString("host")?.ifEmpty { null }, remote?.optInt("port") ?: 0)
+                        return@withContext Enrolment(base, o.optString("id"), o.getString("certificate"), o.getString("ca"),
+                            o.optString("gatewayName"), endpointsFrom(o.optJSONArray("endpoints")))
                     }
                     if (r.code != 404) last = Refused(o.optString("error").ifEmpty { "The server refused (${r.code})." }, o.optBoolean("pin"))
                 }
             } catch (e: Exception) { /* try the next place */ }
         }
-        throw last ?: Refused("The server did not answer. This is set up on the server's own network.")
+        throw last ?: Refused("The box did not answer. A phone is paired on the box's own network.")
     }
 
     /** The phone's key, made the first time it is asked for. */
@@ -113,9 +134,9 @@ object RemoteAccess {
     private fun certificate(pem: String): X509Certificate =
         CertificateFactory.getInstance("X.509").generateCertificate(pem.byteInputStream()) as X509Certificate
 
-    /** The gateway of an enrolment, or null when the server cannot be reached from outside (yet). */
+    /** The gateway of an enrolment, or null when the box gave no address to reach it at (yet). */
     fun end(e: Enrolment): RemoteEnd? {
-        val host = e.host ?: return null
+        if (e.endpoints.isEmpty()) return null
         return try {
             val own = certificate(e.certificate)
             val key = privateKey()
@@ -134,14 +155,14 @@ object RemoteAccess {
             val context = SSLContext.getInstance("TLS").apply { init(arrayOf(keys), arrayOf(trust), null) }
             val client: OkHttpClient = Http.plain.newBuilder()
                 .sslSocketFactory(context.socketFactory, trust)
-                // The gateway is reached under whatever name the relay gives it; what counts is
-                // that its certificate comes from the box's authority and is the gateway's.
+                // The gateway is reached at an address, not a name; what counts is that its
+                // certificate comes from the box's own authority and is the gateway's.
                 .hostnameVerifier { _, session ->
                     val peer = session.peerCertificates.firstOrNull() as? X509Certificate
-                    peer?.subjectAlternativeNames?.any { it.size >= 2 && it[0] == 2 && it[1] == GATEWAY_NAME } == true
+                    peer?.subjectAlternativeNames?.any { it.size >= 2 && it[0] == 2 && it[1] == e.gatewayName } == true
                 }
                 .build()
-            RemoteEnd(host, e.port, client)
+            RemoteEnd(e.endpoints, client)
         } catch (e: Exception) {
             null
         }

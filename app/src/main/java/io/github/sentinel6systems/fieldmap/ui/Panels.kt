@@ -328,7 +328,7 @@ class Panels(private val a: MainActivity) {
 
     private fun serverState(): String = when {
         a.prefs.server == null -> "Fieldmap shows the maps of a fieldmap-server box. On its network, connect once and save the areas you need. They then work anywhere, with no network."
-        a.remoteNow -> "Connected through the remote link. ${a.prefs.styles.size} map style${if (a.prefs.styles.size == 1) "" else "s"}."
+        a.remoteNow -> "Connected from outside, through the box's gateway. ${a.prefs.styles.size} map style${if (a.prefs.styles.size == 1) "" else "s"}."
         a.reachable -> "Connected. ${a.prefs.styles.size} map style${if (a.prefs.styles.size == 1) "" else "s"}."
         else -> "Out of reach now. Saved areas still work."
     }
@@ -364,19 +364,28 @@ class Panels(private val a: MainActivity) {
         val mine = a.enrolment()
         if (mine == null && info?.ready != true) return
         box.addView(a.label("Away from this network"))
-        if (mine != null) {
-            box.addView(a.body(when {
-                a.remoteNow -> "This phone is using the remote link now."
-                (info?.host ?: mine.host) == null -> "This phone has been let in, but the server cannot be reached from outside yet. Its owner switches that on, on the server."
-                else -> "Remote access is set up. Away from this network the app reaches the server by itself."
-            }, muted = true))
-            box.addView(a.button("Remove from this phone", Kind.DANGER) { a.removeRemote(); remoteSection(info) }.apply { layoutParams = lp(top = a.dp(10)) })
+        if (info?.enabled == false || (info == null && a.remoteSwitchedOff)) {
+            box.addView(a.body("Remote access is switched off on the box, on its Phones page. " +
+                (if (mine != null) "This phone stays paired for when it is switched on again." else "It can be paired once it is switched on."), muted = true))
             return
         }
-        box.addView(a.body("Let this phone use the server's maps from anywhere. It can only be set up here, on the server's own network.", muted = true))
-        val code = if (info?.pin == true) a.field("The server's code", "", max = 64) { hideKeyboard() }.apply { layoutParams = lp(top = a.dp(10)) }.also(box::addView) else null
+        if (mine != null) {
+            // The box's own words about being reached from outside: fresh at home, as last heard away.
+            val reach = info?.reach?.ifEmpty { null } ?: mine.reach
+            box.addView(a.body(when {
+                a.remoteNow -> "This phone is paired and reaches the box from outside now."
+                a.reachable -> "This phone is paired. Away from this network it reaches the box by itself where the box can be reached."
+                else -> "This phone is paired, but the box does not answer from here. If the box's address changed since this phone was last home, the phone learns the new one there."
+            }, muted = true))
+            if (reach.isNotEmpty()) box.addView(a.body("The box says: $reach", muted = true, top = 8))
+            box.addView(a.button("Unpair this phone", Kind.DANGER) { a.removeRemote(); remoteSection(info) }.apply { layoutParams = lp(top = a.dp(10)) })
+            return
+        }
+        box.addView(a.body("Pair this phone to use the box's maps from anywhere, also away from this network. " +
+            (if (info?.pairingOpen == true) "Pairing is open on the box now." else "First press Pair a phone on the box's Phones page."), muted = true))
+        val code = if (info?.pin == true) a.field("The box's code", "", max = 64) { hideKeyboard() }.apply { layoutParams = lp(top = a.dp(10)) }.also(box::addView) else null
         val said = a.body("", top = 8).apply { setTextColor(a.color(R.color.warn)); visibility = View.GONE }
-        val button = a.button("Set up remote access") {}
+        val button = a.button("Pair this phone", Kind.PRIMARY) {}
         button.setOnClickListener {
             hideKeyboard()
             button.enable(false)
