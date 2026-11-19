@@ -98,7 +98,11 @@ object NetBirdLink {
         if (link != null && now != null && blockChange(now, block).let { it == BlockChange.SAME || it == BlockChange.STORE }) return@withContext local
         stop()
         try {
-            val file = identity(context).apply { parentFile?.mkdirs() }
+            // The identity of another NetBird network is of no use: the device joins this one with the key.
+            val file = identity(context)
+            if (!identityFits(owner(context).takeIf { it.exists() }?.readText(), block.management)) file.parentFile?.deleteRecursively()
+            file.parentFile?.mkdirs()
+            owner(context).writeText(block.management)
             val started = Nblink.start(block.management, block.setupKey, name, file.path, START_SECONDS, BuildConfig.DEBUG && VERBOSE)
             link = started
             runs = block
@@ -120,7 +124,11 @@ object NetBirdLink {
         worker.execute { stop() }
     }
 
-    /** Stops the client and forgets this device's membership of the NetBird network. */
+    /**
+     * Stops the client and forgets this device's membership of the NetBird network. Only when the
+     * device is unpaired or the box removed it: when the box only switches NetBird off, the
+     * membership stays, so that the device is the same member when NetBird comes back.
+     */
     fun forget(context: Context) {
         val app = context.applicationContext
         close()
@@ -139,6 +147,9 @@ object NetBirdLink {
 
     /** Where the client keeps this device's own NetBird key, so that it is the same member after a restart. */
     private fun identity(context: Context) = File(context.filesDir, "netbird/config.json")
+
+    /** The management address of the network that the identity belongs to. */
+    private fun owner(context: Context) = File(context.filesDir, "netbird/management")
 
     /** For a developer: the client's own log in the system log of a debug build. */
     private const val VERBOSE = false

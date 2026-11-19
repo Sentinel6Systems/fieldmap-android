@@ -350,8 +350,11 @@ list of members on the NetBird dashboard.
 
 What the app keeps on the device: the setup key, encrypted with a key in the key store of the device, and the
 device's own NetBird key in the private storage of the app. The app never shows the setup key and never writes
-it to a log. **Unpair this device** deletes both. The app also deletes both when the owner switches off NetBird
-on the box, or removes the device.
+it to a log. **Unpair this device** deletes both. The app also deletes both when the owner removes the device
+on the box. When the owner switches off NetBird on the box, the app deletes the setup key and keeps the device's
+own NetBird key. When the owner switches NetBird on again on the same NetBird network, the device is the same
+member as before, and the dashboard shows no new member. On a different NetBird network, the app deletes the old
+key and the device joins as a new member.
 
 This is not a VPN of the system. Android does not ask for a VPN permission and shows no key icon. The NetBird
 client is a part of the app. Only the requests of the app to the box use it. A different VPN on the device

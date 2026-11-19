@@ -8,6 +8,7 @@ import io.github.sentinel6systems.fieldmap.remote.Way
 import io.github.sentinel6systems.fieldmap.remote.WayRules
 import io.github.sentinel6systems.fieldmap.remote.blockAnswer
 import io.github.sentinel6systems.fieldmap.remote.blockChange
+import io.github.sentinel6systems.fieldmap.remote.identityFits
 import io.github.sentinel6systems.fieldmap.remote.netbirdFrom
 import io.github.sentinel6systems.fieldmap.server.RemoteEnd
 import okhttp3.OkHttpClient
@@ -84,6 +85,17 @@ class NetBirdTest {
         // The box has another address or port on the same network.
         assertEquals(BlockChange.RESTART, blockChange(block, block.copy(host = "192.0.2.8", rev = "b")))
         assertEquals(BlockChange.RESTART, blockChange(block, block.copy(port = 40000, rev = "b")))
+    }
+
+    @Test
+    fun `the device keeps its NetBird identity only for the same network`() {
+        // NetBird came back on the box, on the same network: the same member, no new join.
+        assertTrue(identityFits("https://api.netbird.io:443", block.management))
+        // Another network, or an identity whose network is not known: join with the key.
+        assertFalse(identityFits("https://netbird.example.com:443", block.management))
+        assertFalse(identityFits(null, block.management))
+        // After a switch off and on, the block is new to the app, and the client starts again.
+        assertEquals(BlockChange.REJOIN, blockChange(null, block))
     }
 
     /* ---------- the order of the ways ---------- */

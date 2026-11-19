@@ -49,7 +49,7 @@ fun netbirdFrom(o: JSONObject?): NetBirdBlock? {
 enum class BlockAnswer {
     /** The box has NetBird: use this block. */
     SET,
-    /** The box has no NetBird (any more): stop the client, forget the key and the membership. */
+    /** The box has no NetBird (any more): stop the client and forget the key. The membership stays (see [identityFits]). */
     NONE,
     /** The box removed this device. */
     REMOVED,
@@ -79,9 +79,15 @@ enum class BlockChange {
     STORE,
     /** The box's address or port changed: the client must start again. The membership stays. */
     RESTART,
-    /** Another NetBird network: stop the client, forget the membership, join the new network. */
+    /** A first block, or another NetBird network: the client starts again with it. */
     REJOIN,
 }
+
+/**
+ * May the client use the NetBird identity that this device keeps? Only on the network that it
+ * belongs to (`of`, its management address). On another network the device joins with the key.
+ */
+fun identityFits(of: String?, management: String) = of != null && of == management
 
 fun blockChange(old: NetBirdBlock?, new: NetBirdBlock): BlockChange = when {
     old == null || old.management != new.management -> BlockChange.REJOIN

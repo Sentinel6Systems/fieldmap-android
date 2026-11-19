@@ -697,9 +697,9 @@ class MainActivity : AppCompatActivity() {
         val mine = enrolment() ?: return
         val change = if (block == null) BlockChange.REJOIN else blockChange(mine.netbird, block)
         if (change == BlockChange.SAME) return
-        // Another network, or none: this device's membership of the old one is of no use.
-        if (change == BlockChange.REJOIN) NetBirdLink.forget(this)
-        if (change == BlockChange.RESTART) NetBirdLink.close()
+        // The client stops. This device's NetBird identity stays: the next start uses it again on
+        // the same network, and drops it for another one (NetBirdLink.open).
+        if (change == BlockChange.REJOIN || change == BlockChange.RESTART) NetBirdLink.close()
         NetBirdLink.rules.reset()
         prefs.enrolment = mine.copy(netbird = block)
         applyRemote()
@@ -712,8 +712,6 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             try {
                 val paired = RemoteAccess.enrol(base, RemoteAccess.deviceName, code)
-                // A membership of another NetBird network, from an old pairing, is of no use.
-                if (paired.netbird == null || blockChange(prefs.enrolment?.netbird, paired.netbird) == BlockChange.REJOIN) NetBirdLink.forget(this@MainActivity)
                 prefs.enrolment = paired.copy(reach = RemoteAccess.info(base)?.reach.orEmpty())
                 applyRemote()
                 done(null)
