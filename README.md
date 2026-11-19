@@ -10,16 +10,16 @@ and use it with gloves. It shows your position. It does not give turn-by-turn di
 
 - **The maps of your box**: all styles of the box, for example topographic light and dark, and OpenStreetMap.
   The device draws the maps from vector tiles, so they stay sharp at all zoom levels.
-- **Map areas**: put an area in the frame, choose the zoom of the most detail, read the number of tiles and the
+- **Map areas**: put an area in the frame, choose the detail (zoom 11 to 14), read the number of tiles and the
   size of the download, and press **Download**. A bar shows the progress. A map area has all the map data: the
   tiles of each layer, the style, the fonts and the symbols.
 - **Your position**: the GPS position of the device on the map. One button follows your position, with north up
   or with your direction up. The top of the screen always shows the grid reference (MGRS) and the latitude and
   longitude.
-- **Markers**: push and hold a point on the map for 2 seconds to add a marker. Give it a name and one of 12
+- **Markers**: touch and hold the map for 2 seconds to add a marker. Give it a name and one of 12
   colours. The **Print a map** page of the box uses the same markers. A file moves them between the two.
-- **From outside**: pair the device with the box one time, on the box's network. After that, the app connects to
-  the box from outside, through the router of the box. The connection is encrypted, and only paired devices can
+- **Remote access**: pair the device with the box one time, on the box's network. After that, the app connects to
+  the box through the internet when the device is not on the box's network. The connection is encrypted, and only paired devices can
   use it. There is no account and no third party.
 - **Sharing**: when you switch it on, the other devices on the box see your position with your name. This
   continues when the device is in your pocket. Tick a marker to share it with all devices. Sharing is off until
@@ -86,8 +86,8 @@ Without `-Pfieldmap.signing` the release build is left unsigned.
 5. Go to **Menu › Map areas › Save a map area**.
 6. Move and zoom the map until the area is in the frame.
 7. Give the map area a name.
-8. Under **Most detail (zoom)**, choose a zoom from 11 to 14. Zoom 14 has all the map features. Each zoom less
-   has about a quarter of the tiles. The app keeps your choice for the next map area.
+8. Under **Detail**, choose a number from 11 to 14. These are zoom levels. 14 has all the details of the map. Each
+   number less has about a quarter of the tiles. The app keeps your choice for the next map area.
 9. Read the number of tiles and the size, and press **Download**.
 10. Keep the app open until the download is complete. The top of the screen shows the progress (42%), and a
     bar under it shows the progress too. The screen stays on during the download.
@@ -108,20 +108,20 @@ Open the app. The top of the screen shows **Offline**. The map shows the map are
 | **+ −** | Zoom. You can also pinch or double-tap. |
 | **Menu** | Map style, map areas, markers, sharing, box, and **Close Fieldmap**. |
 
-**To add a marker, push and hold a point on the map for 2 seconds.** A ring fills around your finger. When the
+**To add a marker, touch and hold the map for 2 seconds.** A ring fills around your finger. When the
 ring is full, the app adds the marker and opens its panel. The marker gets the next name (P1, P2, ...) and the
-last colour that you used. You can change them in the panel. To add a marker at your position, hold the blue
-dot.
+last colour that you used. You can change them in the panel. To add a marker at your position, touch and hold
+the blue dot.
 
 Tap a marker to see its panel. In the panel you can change the name and the colour, and delete the marker. The
 panel also shows the grid reference, the distance and the bearing. The screen stays on when the map follows your
 position.
 
-**To move a marker, press Move in its panel. Then tap the new position on the map.** You can move and zoom the
+**To move a marker, press Move in its panel. Then tap the new place on the map.** You can move and zoom the
 map before you tap. Tap the blue dot to move the marker to your position. To keep the marker where it is, press
 the Back arrow.
 
-### From outside: pairing
+### Remote access: pairing
 
 A fieldmap-server box can let paired devices use its maps from outside. The README of the box tells more in
 "Remote access for the Android app". Remote access is off until the owner of the box switches it on. Do these
@@ -131,8 +131,9 @@ steps on the box's network:
    already, open **Devices** and press **Pair a device**. Pairing then opens for 10 minutes.
 2. In the app, go to **Menu › Box** and press **Pair this device**.
 
-Outside the box's network, the top of the screen shows **Outside** in place of **Connected**. The map loads as
-on the box's network, but slower. Without the internet, it shows **Offline**, and the map areas work as before.
+When the device is not on the box's network, the app connects through the internet. The top of the screen shows
+**Connected**, as on the box's network. **Menu › Box** shows "connected through the internet". The map loads as on
+the box's network, but slower. Without the internet, the top shows **Offline**, and the map areas work as before.
 
 How it works: the app makes a key in the key store of the device. Nothing can read the key out of the key store.
 The box gives the app a certificate for this key and the addresses of the box on the internet. Outside the box's
@@ -199,9 +200,9 @@ and fades. When the box removes the position, the diamond goes from the map. Tap
 time of the last update, the grid reference, the distance and the bearing. **Menu › Sharing** shows a list of
 the other devices. You see the other devices also when you do not share your own position.
 
-**Shared markers.** A marker is only on your device until you tick **Share with everyone on this box** in its
+**Shared markers.** A marker is only on your device until you tick **Share with the other devices** in its
 panel. Then all devices have it. All devices can change the name, the colour and the position, or delete it.
-The last change stays. Remove the tick to remove the marker from the other devices and keep it on your device.
+The last change stays. Untick it to remove the marker from the other devices and keep it on your device.
 When you delete a shared marker, the app deletes it from all devices. The app asks first. The device keeps the
 shared markers, so they show also without a connection. When you change a shared marker without a connection,
 the app sends the change when the connection comes back. If a different device changed the same marker in the
@@ -281,7 +282,7 @@ It was then put on a Google Pixel phone (Android 16) and checked by hand and ove
   tile sets of the style
 
 Pairing and the remote link were tested on the emulator against fieldmap-server's gateway: pairing refused while
-closed and done in one press once opened on the box's Devices page, the switch to **Outside** (then called **Remote**) when the home address
+closed and done in one press once opened on the box's Devices page, the switch to the internet (the strip then read **Outside**, now **Connected**) when the home address
 went away, a device removed on the box being told so, remote access switched off and on again (the device stays
 paired). The remote link was later confirmed by hand from outside, through a home router, with the Pixel and a
 box behind Internet-in-a-Box.
@@ -297,7 +298,7 @@ its gateway, with a second device played by a script:
 - out of reach: a shared marker renamed, one deleted and a new one shared, all sent when the box answered again;
   the same marker changed on both sides, where the later change stayed, either way round
 - sharing switched off on the box (the app says so and asks again once a minute) and on again
-- all of it again through the gateway, with the home address cut off (the strip reads **Outside**)
+- all of it again through the gateway, with the home address cut off (the strip then read **Outside**, now **Connected**)
 
 Sharing was then tried by hand with two phones (a Google Pixel on Android 16 and a rugged Android 13 phone) on a
 fieldmap-server box behind Internet-in-a-Box, on the box's network: each showed the other, and a marker shared on

@@ -302,7 +302,7 @@ class MainActivity : AppCompatActivity() {
         pendingStyle = null
         showStyle(null)
         notice(
-            if (areas.list.isEmpty()) "There is no connection to the box. This device has no map areas.\n\nOn the box's network, go to Menu › Map areas › Save a map area."
+            if (areas.list.isEmpty()) "There is no connection to the box. This device has no map areas.\n\nConnect to the box. Then go to Menu › Map areas › Save a map area."
             else "This map style is not on this device. Choose a map area in Menu › Map areas.",
         )
     }
@@ -547,7 +547,7 @@ class MainActivity : AppCompatActivity() {
                     val answer = TileServer.status("${base}styles.json", 6000, Route.REMOTE)
                     if (answer == 403 && base == prefs.server) {
                         removeRemote()
-                        toast("The box removed this device. To use the box from outside, pair this device again on the box's network.")
+                        toast("The box removed this device. To use the box through the internet, pair this device again on the box's network.")
                         break
                     }
                     if (answer == 401) {
@@ -669,7 +669,8 @@ class MainActivity : AppCompatActivity() {
             // Short: a wide tag cuts the grid reference beside it. The bar under the strip says "download".
             saving != null -> "${saving.percent}%" to R.color.amber
             prefs.server == null -> "No box" to R.color.muted
-            remoteNow -> "Outside" to R.color.sig
+            // The same word on the box's network and through the internet: the map works the
+            // same. Menu › Box tells which way.
             reachable -> "Connected" to R.color.sig
             else -> "Offline" to R.color.muted
         }

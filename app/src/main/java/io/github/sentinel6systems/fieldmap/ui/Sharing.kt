@@ -282,9 +282,9 @@ class Sharing(private val a: MainActivity) {
         val mine = "My position: " + if (on) "on" else "off"
         return when {
             a.prefs.server == null -> "No box"
-            box == Box.NONE -> "Not on this box"
+            box == Box.NONE -> "The box cannot share"
             box == Box.OFF -> "Off on the box"
-            !a.reachable -> "$mine · no connection"
+            !a.reachable -> "$mine · offline"
             box == Box.UNKNOWN -> mine
             else -> "$mine · " + others().size.let { n -> if (n == 0) "no other devices" else if (n == 1) "1 other device" else "$n other devices" }
         }
@@ -292,11 +292,11 @@ class Sharing(private val a: MainActivity) {
 
     /** What sharing is and how it stands with this box. */
     fun about(): String = when {
-        a.prefs.server == null -> "Sharing uses a Fieldmap box. Connect to the box first in Menu › Box."
-        box == Box.NONE -> "This box does not have the sharing function."
-        box == Box.OFF -> "Sharing is off on the box. To switch it on, open the Devices page of the box."
+        a.prefs.server == null -> "Sharing goes through a Fieldmap box. First, connect to the box in Menu › Box."
+        box == Box.NONE -> "This box cannot share positions and markers."
+        box == Box.OFF -> "Sharing is off on the box. To switch it on, open the Devices page of the box in a browser."
         !a.reachable -> "There is no connection to the box. Shared markers stay on this device. The app sends your changes when the connection comes back."
-        else -> "Devices that connect to this box can see the positions of the other devices. They can also share markers."
+        else -> "The devices on this box can see the positions of the other devices. They can also share markers."
     }
 
     /** How it stands with this phone's own position, while sharing it is on. */
