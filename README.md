@@ -109,9 +109,13 @@ ring is full, the app adds the marker and opens its panel. The marker gets the n
 last colour that you used. You can change them in the panel. To add a marker at your position, hold the blue
 dot.
 
-Tap a marker to see its panel. In the panel you can change the name and the colour, move the marker to the
-crosshair, and delete it. The panel also shows the grid reference, the distance and the bearing. The screen
-stays on when the map follows your position.
+Tap a marker to see its panel. In the panel you can change the name and the colour, and delete the marker. The
+panel also shows the grid reference, the distance and the bearing. The screen stays on when the map follows your
+position.
+
+**To move a marker, press Move in its panel. Then tap the new position on the map.** You can move and zoom the
+map before you tap. Tap the blue dot to move the marker to your position. To keep the marker where it is, press
+the Back arrow.
 
 ### From outside: pairing
 

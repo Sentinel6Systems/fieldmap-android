@@ -454,8 +454,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Tells the map which part of it is in view, so that its centre (the crosshair, the
-     * followed position) is the centre of what can be seen, and sizes the frame to it.
+     * Tells the map which part of it is in view, so that its centre (the followed position)
+     * is the centre of what can be seen, and sizes the frame to it.
      */
     internal fun layoutMap() {
         val w = b.root.width
@@ -469,8 +469,6 @@ class MainActivity : AppCompatActivity() {
         b.frame.setCovered(0, top, right, bottom)
         val dx = -right / 2f
         val dy = (top - bottom) / 2f
-        b.crosshair.translationX = dx
-        b.crosshair.translationY = dy
         b.notice.translationX = dx
         b.toast.translationY = top + dp(10).toFloat()
         b.toast.translationX = dx
@@ -732,18 +730,22 @@ class MainActivity : AppCompatActivity() {
     private val holdDone = Runnable {
         val at = holdAt
         endHold()
-        val m = map ?: return@Runnable
-        val spot = at?.let(m.projection::fromScreenLocation) ?: return@Runnable
+        val spot = at?.let(::spotAt) ?: return@Runnable
         b.map.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        // A finger on the position symbol means "where I am": take the position itself.
+        mark(spot.latitude, spot.longitude)
+    }
+
+    /** The point under a finger. A finger on the position symbol means "where I am": the position itself. */
+    private fun spotAt(at: PointF): LatLng? {
+        val m = map ?: return null
         val here = lastLocation()?.let { LatLng(it.latitude, it.longitude) }
-        val onMe = here != null && m.projection.toScreenLocation(here).let { hypot(it.x - at.x, it.y - at.y) < dp(32) }
-        if (onMe && here != null) mark(here.latitude, here.longitude) else mark(spot.latitude, spot.longitude)
+        if (here != null && m.projection.toScreenLocation(here).let { hypot(it.x - at.x, it.y - at.y) < dp(32) }) return here
+        return m.projection.fromScreenLocation(at)
     }
 
     private fun watchHold(e: MotionEvent) {
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> if (map != null && panels.screen != Screen.SAVE) {
+            MotionEvent.ACTION_DOWN -> if (map != null && panels.screen != Screen.SAVE && panels.screen != Screen.MOVE) {
                 holdAt = PointF(e.x, e.y)
                 b.hold.start(e.x, e.y, HOLD_MS)
                 b.map.postDelayed(holdDone, HOLD_MS)
@@ -764,6 +766,14 @@ class MainActivity : AppCompatActivity() {
         val m = map ?: return false
         if (panels.screen == Screen.SAVE) return false
         val p = m.projection.toScreenLocation(at)
+        // After Move in a marker's panel, the next tap is the marker's new position.
+        if (panels.screen == Screen.MOVE) {
+            val spot = spotAt(p) ?: return true
+            selected?.let(markers::get)?.let { updateMarker(it.copy(lat = spot.latitude, lon = spot.longitude)) }
+            b.map.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            panels.show(Screen.MARKER)
+            return true
+        }
         val reach = dp(26).toFloat()                 // a gloved finger is not exact
         val around = RectF(p.x - reach, p.y - reach, p.x + reach, p.y + reach)
         m.queryRenderedFeatures(around, MARKER_DOTS).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
@@ -822,6 +832,7 @@ class MainActivity : AppCompatActivity() {
         markersChanged()
         val now = open?.let { markers.get(it.id) }
         if (open != null && now == null) {
+            if (panels.screen == Screen.MOVE) panels.show(Screen.MARKER)
             panels.back()
             toast("Another device deleted ${open.label.ifEmpty { "this marker" }}.")
         } else if (open != null && now != open.copy(updated = now?.updated.orEmpty(), by = now?.by.orEmpty())) {
@@ -1035,14 +1046,8 @@ class MainActivity : AppCompatActivity() {
             Follow.NORTH -> b.position.set(R.drawable.ic_follow, getString(R.string.north_up), true)
             Follow.HEADING -> b.position.set(R.drawable.ic_heading, getString(R.string.head_up), true)
         }
-        showCrosshair()
         keepScreenOn()
         updateReadout()
-    }
-
-    /** The crosshair marks the map's centre whenever that is not the phone's own position. */
-    internal fun showCrosshair() {
-        b.crosshair.visibility = if (follow == Follow.FREE && panels.screen != Screen.SAVE) View.VISIBLE else View.GONE
     }
 
     /**
@@ -1063,27 +1068,25 @@ class MainActivity : AppCompatActivity() {
         if (follow == Follow.HEADING) lc.cameraMode = if (byCourse) CameraMode.TRACKING_GPS else CameraMode.TRACKING_COMPASS
     }
 
-    /** The strip at the top: the grid reference and latitude/longitude of the phone, or of the crosshair. */
+    /** The strip at the top: the grid reference and latitude/longitude of the device, and the scale bar. */
     private fun updateReadout() {
         val m = map ?: return
-        val here = lastLocation()
-        if (follow != Follow.FREE) {
-            if (here == null) { b.grid.text = "No GPS position"; b.latlon.text = "The app waits for the GPS"; return }
-            b.grid.text = Utm.toMgrs(here.latitude, here.longitude) ?: "Outside the MGRS grid"
-            // Rounded up, never "±0": feet where the scale bar is in feet and miles.
-            val accuracy = when {
-                !here.hasAccuracy() -> ""
-                imperial -> " ±${kotlin.math.ceil(here.accuracy / 0.3048).toInt().coerceAtLeast(1)} ft"
-                else -> " ±${kotlin.math.ceil(here.accuracy.toDouble()).toInt().coerceAtLeast(1)} m"
-            }
-            b.latlon.text = String.format(Locale.US, "YOU%s · %.5f, %.5f", accuracy, here.latitude, here.longitude)
-        } else {
-            val c = m.cameraPosition.target ?: return
-            b.grid.text = Utm.toMgrs(c.latitude, c.longitude) ?: "Outside the MGRS grid"
-            b.latlon.text = String.format(Locale.US, "CROSSHAIR · %.5f, %.5f", c.latitude, c.longitude)
-        }
         // MapLibre counts in density-independent pixels; the bar is drawn in real ones.
         b.scale.setMetersPerPixel(m.projection.getMetersPerPixelAtLatitude(m.cameraPosition.target?.latitude ?: 0.0) / resources.displayMetrics.density)
+        val here = lastLocation()
+        if (here == null) {
+            b.grid.text = "No GPS position"
+            b.latlon.text = if (locationOn) "The app waits for the GPS" else "Press Follow to show your position"
+            return
+        }
+        b.grid.text = Utm.toMgrs(here.latitude, here.longitude) ?: "Outside the MGRS grid"
+        // Rounded up, never "±0": feet where the scale bar is in feet and miles.
+        val accuracy = when {
+            !here.hasAccuracy() -> ""
+            imperial -> " ±${kotlin.math.ceil(here.accuracy / 0.3048).toInt().coerceAtLeast(1)} ft"
+            else -> " ±${kotlin.math.ceil(here.accuracy.toDouble()).toInt().coerceAtLeast(1)} m"
+        }
+        b.latlon.text = String.format(Locale.US, "YOU%s · %.5f, %.5f", accuracy, here.latitude, here.longitude)
     }
 
     /* ---------- small things ---------- */
@@ -1112,7 +1115,7 @@ class MainActivity : AppCompatActivity() {
 
     private val tick = object : Runnable {
         override fun run() {
-            if (follow != Follow.FREE) updateReadout()
+            updateReadout()
             chooseHeadingSource()
             sharing.tick()
             panels.peerTick()

@@ -49,6 +49,7 @@ enum class Screen(val title: String, val parent: Screen?) {
     SAVE("Save a map area", AREAS),
     MARKERS("Markers", MENU),
     MARKER("Marker", null),
+    MOVE("Move the marker", MARKER),
     SHARING("Sharing", MENU),
     PEER("Shared position", null),
     SERVER("Box", MENU),
@@ -111,7 +112,9 @@ class Panels(private val a: MainActivity) {
     fun show(next: Screen) {
         hideKeyboard()
         if (screen == Screen.SAVE) estimateJob?.cancel()
-        if (screen == Screen.MARKER && next != Screen.MARKER) a.select(null)
+        // Move belongs to the marker's panel: the marker stays chosen between the two.
+        if (screen == Screen.MARKER && next != Screen.MARKER && next != Screen.MOVE) a.select(null)
+        if (screen == Screen.MOVE && next != Screen.MARKER) a.select(null)
         if (screen == Screen.PEER && next != Screen.PEER) a.selectPeer(null)
         screen = next
         val open = next != Screen.NONE
@@ -125,7 +128,6 @@ class Panels(private val a: MainActivity) {
         a.b.panelTitle.setPadding(if (hasBack) 0 else a.dp(16), 0, 0, 0)
         a.b.panelScroll.scrollTo(0, 0)
         build()
-        a.showCrosshair()
         a.layoutMap()
     }
 
@@ -154,6 +156,7 @@ class Panels(private val a: MainActivity) {
             Screen.SAVE -> save()
             Screen.MARKERS -> markers()
             Screen.MARKER -> marker()
+            Screen.MOVE -> add(a.body("Tap the new position on the map. You can move and zoom the map first.", top = 12))
             Screen.SHARING -> sharing()
             Screen.PEER -> peer()
             Screen.SERVER -> server()
@@ -362,11 +365,7 @@ class Panels(private val a: MainActivity) {
         }
         add(a.buttons(
             a.button("Delete", Kind.DANGER) { if (a.markers.get(m.id)?.shared == true) confirmDeleteShared(m.id) else { a.deleteMarker(m.id); back() } },
-            a.button("Move to crosshair") {
-                val c = a.map?.cameraPosition?.target ?: return@button
-                a.markers.get(m.id)?.let { a.updateMarker(it.copy(lat = c.latitude, lon = c.longitude)) }
-                place()
-            }.apply { enable(a.follow == Follow.FREE) },
+            a.button("Move") { show(Screen.MOVE) },
             top = 16,
         ))
     }
