@@ -7,10 +7,10 @@ import kotlin.math.roundToLong
 
 /** The ways the app writes a position. The person chooses one in Menu › Settings. */
 enum class CoordFormat(val title: String) {
-    MGRS("MGRS grid"),
+    MGRS("MGRS"),
     UTM("UTM"),
-    DECIMAL("Decimal degrees"),
-    DMS("Degrees, minutes, seconds"),
+    DECIMAL("Decimal Degrees (DD)"),
+    DMS("Degrees Minutes Seconds (DMS)"),
 }
 
 object Coords {

@@ -127,7 +127,7 @@ object RemoteAccess {
                 }
             } catch (e: Exception) { /* try the next place */ }
         }
-        throw last ?: Refused("The box did not answer. Pair the device on the box's network.")
+        throw last ?: Refused("The server did not respond. Pair the device on the server's network.")
     }
 
     /**

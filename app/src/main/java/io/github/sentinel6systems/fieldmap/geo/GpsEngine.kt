@@ -30,7 +30,7 @@ class GpsEngine(context: Context) : LocationEngine {
     override fun getLastLocation(callback: LocationEngineCallback<LocationEngineResult>) {
         val last = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).filter(::has)
             .mapNotNull { manager.getLastKnownLocation(it) }.maxByOrNull { it.elapsedRealtimeNanos }
-        if (last != null) callback.onSuccess(LocationEngineResult.create(last)) else callback.onFailure(Exception("No position yet"))
+        if (last != null) callback.onSuccess(LocationEngineResult.create(last)) else callback.onFailure(Exception("No location yet"))
     }
 
     override fun requestLocationUpdates(request: LocationEngineRequest, callback: LocationEngineCallback<LocationEngineResult>, looper: Looper?) {

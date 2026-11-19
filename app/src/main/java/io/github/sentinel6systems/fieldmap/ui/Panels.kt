@@ -44,15 +44,15 @@ import java.util.Date
 enum class Screen(val title: String, val parent: Screen?) {
     NONE("", null),
     MENU("Menu", null),
-    STYLES("Map style", MENU),
-    AREAS("Map areas", MENU),
-    SAVE("Save a map area", AREAS),
+    STYLES("Map Style", MENU),
+    AREAS("Offline Areas", MENU),
+    SAVE("Download Area", AREAS),
     MARKERS("Markers", MENU),
     MARKER("Marker", null),
-    MOVE("Move the marker", MARKER),
-    SHARING("Sharing", MENU),
-    PEER("Shared position", null),
-    SERVER("Box", MENU),
+    MOVE("Move Marker", MARKER),
+    SHARING("Location Sharing", MENU),
+    PEER("Shared Location", null),
+    SERVER("Server", MENU),
     SETTINGS("Settings", MENU),
 }
 
@@ -157,7 +157,7 @@ class Panels(private val a: MainActivity) {
             Screen.SAVE -> save()
             Screen.MARKERS -> markers()
             Screen.MARKER -> marker()
-            Screen.MOVE -> add(a.body("Tap the new place of the marker on the map. You can move and zoom the map first.", top = 12))
+            Screen.MOVE -> add(a.body("Tap the new location of the marker on the map. You can move and zoom the map first.", top = 12))
             Screen.SHARING -> sharing()
             Screen.PEER -> peer()
             Screen.SERVER -> server()
@@ -173,15 +173,15 @@ class Panels(private val a: MainActivity) {
 
     private fun menu() {
         val saved = a.areas.list
-        add(a.row("Map style", a.shownStyleName() ?: "None") { show(Screen.STYLES) })
-        add(a.row("Map areas", if (saved.isEmpty()) "None" else "${saved.size} on this device · ${bytesText(a.areas.storedBytes())}") { show(Screen.AREAS) })
+        add(a.row("Map Style", a.shownStyleName() ?: "None") { show(Screen.STYLES) })
+        add(a.row("Offline Areas", if (saved.isEmpty()) "None" else "${saved.size} downloaded · ${bytesText(a.areas.storedBytes())}") { show(Screen.AREAS) })
         add(a.row("Markers", if (a.markers.markers.isEmpty()) "None" else "${a.markers.markers.size}") { show(Screen.MARKERS) })
-        add(a.row("Sharing", a.sharing.summary()) { show(Screen.SHARING) })
-        add(a.row("Box", a.prefs.server?.let { ServerAddress.short(it) + " · " + boxState() } ?: "Not set") { show(Screen.SERVER) })
-        add(a.row("Settings", "Coordinates: ${a.prefs.coordFormat.title}") { show(Screen.SETTINGS) })
+        add(a.row("Location Sharing", a.sharing.summary()) { show(Screen.SHARING) })
+        add(a.row("Server", a.prefs.server?.let { ServerAddress.short(it) + " · " + boxState() } ?: "Not Configured") { show(Screen.SERVER) })
+        add(a.row("Settings", "Coordinate format: ${a.prefs.coordFormat.title}") { show(Screen.SETTINGS) })
         // The one way to end a shared position for good, besides swiping the app away.
-        add(a.button("Close Fieldmap") { a.quit() }.apply { layoutParams = lp(top = a.dp(16)) })
-        if (a.sharing.on) add(a.body("Close Fieldmap also stops the sharing of your position. If you only leave the app, sharing continues.", muted = true, top = 8))
+        add(a.button("Exit") { a.quit() }.apply { layoutParams = lp(top = a.dp(16)) })
+        if (a.sharing.on) add(a.body("Exit also stops location sharing. If you only leave the app, sharing continues.", muted = true, top = 8))
         add(a.mono("Fieldmap ${BuildConfig.VERSION_NAME}", 12f).apply { layoutParams = lp(top = a.dp(14)) })
     }
 
@@ -190,14 +190,14 @@ class Panels(private val a: MainActivity) {
     private fun styles() {
         val all = a.prefs.styles
         if (all.isEmpty()) {
-            add(a.body("Connect to the box first. The box has the map styles.", muted = true, top = 12))
-            add(a.button("Box") { show(Screen.SERVER) }.apply { layoutParams = lp(top = a.dp(12)) })
+            add(a.body("Connect to a server first. The map styles come from the server.", muted = true, top = 12))
+            add(a.button("Server") { show(Screen.SERVER) }.apply { layoutParams = lp(top = a.dp(12)) })
             return
         }
         val current = a.currentStyle()
         for (style in all) {
             val saved = a.areas.list.count { it.styleUrl == style.url }
-            val detail = if (saved > 0) "$saved map area${if (saved == 1) "" else "s"}" else if (!a.reachable) "Not on this device" else null
+            val detail = if (saved > 0) "$saved offline area${if (saved == 1) "" else "s"}" else if (!a.reachable) "Not downloaded" else null
             add(a.row(style.name, detail, icon = if (style.id == current?.id) R.drawable.ic_check else null) { a.chooseStyle(style) }
                 .apply { if (style.id != current?.id && saved == 0 && !a.reachable) alpha = 0.55f })
         }
@@ -207,7 +207,7 @@ class Panels(private val a: MainActivity) {
 
     /** The format of all positions in the app, each choice shown with your position (or the map's centre) in it. */
     private fun settings() {
-        add(a.label("Coordinates"))
+        add(a.label("Coordinate Format"))
         val here = a.fix()?.let { it.lat to it.lon } ?: a.map?.cameraPosition?.target?.let { it.latitude to it.longitude }
         val chosen = a.prefs.coordFormat
         for (f in CoordFormat.entries) {
@@ -217,33 +217,33 @@ class Panels(private val a: MainActivity) {
                 build()
             })
         }
-        add(a.body("The app shows all positions in this format. This includes the top of the screen, the markers and the shared positions.", muted = true, top = 12))
+        add(a.body("All coordinates in the app use this format, including the top bar, markers, and shared locations.", muted = true, top = 12))
     }
 
     /* ---------- saved areas ---------- */
 
     private fun areas() {
         val canSave = a.reachable && a.currentStyle() != null
-        add(a.button("Save a map area", Kind.PRIMARY) { a.startFraming() }.apply { layoutParams = lp(top = a.dp(12)); enable(canSave) })
-        if (!canSave) add(a.body("To save a map area, connect to the box.", muted = true, top = 8))
+        add(a.button("Download Area", Kind.PRIMARY) { a.startFraming() }.apply { layoutParams = lp(top = a.dp(12)); enable(canSave) })
+        if (!canSave) add(a.body("Connect to the server to download an area.", muted = true, top = 8))
         if (a.areas.list.isEmpty()) {
-            add(a.body("This device has no map areas. A map area keeps a part of the map on this device. You can then use it without a connection to the box.", muted = true, top = 14))
+            add(a.body("No offline areas. Download an area to use the map without a connection to the server.", muted = true, top = 14))
             return
         }
-        add(a.label("On this device"))
+        add(a.label("Downloaded Areas"))
         for (area in a.areas.list) add(areaCard(area))
-        add(a.label("Update"))
-        add(a.body("When the box has new maps, update the map areas. The app then downloads all map areas again.", muted = true))
-        add(a.button("Update all map areas") { confirmUpdate() }.apply { layoutParams = lp(top = a.dp(10)); enable(a.reachable && a.areas.downloading == null) })
+        add(a.label("Updates"))
+        add(a.body("When the server has new maps, update your offline areas. The app downloads all areas again.", muted = true))
+        add(a.button("Update All") { confirmUpdate() }.apply { layoutParams = lp(top = a.dp(10)); enable(a.reachable && a.areas.downloading == null) })
     }
 
     private fun areaCard(area: SavedArea): View = LinearLayout(a).apply {
         orientation = LinearLayout.VERTICAL
         layoutParams = lp()
         val detail = when {
-            area.downloading -> "Download ${area.percent}% · ${bytesText(area.bytes)}" + if (area.waiting) " · waits for the box" else ""
-            !area.complete -> "Not complete · ${bytesText(area.bytes)}"
-            else -> "${area.styleName} · detail ${area.maxZoom} · ${bytesText(area.bytes)} · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(area.created))}"
+            area.downloading -> "Downloading ${area.percent}% · ${bytesText(area.bytes)}" + if (area.waiting) " · Waiting for server" else ""
+            !area.complete -> "Incomplete · ${bytesText(area.bytes)}"
+            else -> "${area.styleName} · Detail ${area.maxZoom} · ${bytesText(area.bytes)} · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(area.created))}"
         }
         addView(a.row(area.name, detail) { a.showArea(area) })
         if (area.downloading) addView(LinearLayout(a).apply {
@@ -256,8 +256,8 @@ class Panels(private val a: MainActivity) {
 
     private fun confirmUpdate() {
         AlertDialog.Builder(a)
-            .setTitle("Update all map areas?")
-            .setMessage("The app downloads all map areas again from the box. Keep the app open until the download is complete.")
+            .setTitle("Update All Areas?")
+            .setMessage("The app downloads all offline areas again from the server. Keep the app open until the download completes.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Update") { _, _ -> a.areas.updateAll() }
             .show()
@@ -266,7 +266,7 @@ class Panels(private val a: MainActivity) {
     private fun confirmDelete(area: SavedArea) {
         AlertDialog.Builder(a)
             .setTitle("Delete \"${area.name}\"?")
-            .setMessage("The app removes the maps of this area from this device.")
+            .setMessage("This removes the maps of this area from this device.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Delete") { _, _ -> a.areas.delete(area) }
             .show()
@@ -275,12 +275,12 @@ class Panels(private val a: MainActivity) {
     /* ---------- save a new area ---------- */
 
     private fun save() {
-        add(a.body("Move and zoom the map. Put the area that you want in the frame.", top = 12))
-        add(a.label("Name"))
+        add(a.body("Move and zoom the map to fit the area in the frame.", top = 12))
+        add(a.label("Area Name"))
         val used = a.areas.list.map { it.name }.toSet()
         val name = generateSequence(a.areas.list.size + 1) { it + 1 }.map { "Area $it" }.first { it !in used }
-        areaName = a.field("Name", name, max = Drawings.MAX_LABEL) { hideKeyboard() }.also(::add)
-        add(a.label("Detail"))
+        areaName = a.field("Area Name", name, max = Drawings.MAX_LABEL) { hideKeyboard() }.also(::add)
+        add(a.label("Detail Level"))
         val depths = ArrayList<View>()
         add(LinearLayout(a).apply {
             for (z in Tiles.DEPTHS) addView(TextView(a).apply {
@@ -289,13 +289,13 @@ class Panels(private val a: MainActivity) {
                 gravity = Gravity.CENTER
                 setTextColor(a.color(R.color.ink))
                 setBackgroundResource(R.drawable.bg_control)
-                contentDescription = "Detail $z"
+                contentDescription = "Detail Level $z"
                 isSelected = z == a.prefs.areaZoom
                 setOnClickListener { hideKeyboard(); a.prefs.areaZoom = z; depths.forEach { it.isSelected = it === this }; estimate() }
                 depths += this
             }, LinearLayout.LayoutParams(0, a.dp(52), 1f).apply { if (childCount > 0) marginStart = a.dp(6) })
         })
-        add(a.body("14 has all the details of the map. A lower number gives a smaller download with less detail.", muted = true, top = 8))
+        add(a.body("14 includes all map detail. A lower level gives a smaller download with less detail.", muted = true, top = 8))
         estimateText = a.mono("", 15f, muted = false).apply { layoutParams = lp(top = a.dp(14)); minLines = 2 }.also(::add)
         val download = a.button("Download", Kind.PRIMARY) { download() }
         downloadButton = download
@@ -315,21 +315,21 @@ class Panels(private val a: MainActivity) {
             button.enable(ok)
         }
         val style = a.currentStyle()
-        if (style == null || !a.reachable) return say("There is no connection to the box. You cannot save a map area now.", R.color.warn)
+        if (style == null || !a.reachable) return say("No connection to the server. You cannot download an area now.", R.color.warn)
         estimateJob = a.scope.launch {
             delay(350)
-            val list = sources.of(style.url) ?: return@launch say("The box did not answer.", R.color.warn)
-            val box = a.frameBox() ?: return@launch say("This area is too large. Zoom in.", R.color.warn)
+            val list = sources.of(style.url) ?: return@launch say("The server did not respond.", R.color.warn)
+            val box = a.frameBox() ?: return@launch say("Area too large. Zoom in.", R.color.warn)
             val depth = a.prefs.areaZoom
             val tiles = Tiles.count(list, box, depth)
-            if (tiles > Areas.MAX_TILES) return@launch say("This area is too large. It has ${number(tiles)} tiles. Choose less detail, or zoom in to make the area smaller.", R.color.warn)
-            say("${number(tiles)} tiles. The app finds the size…")
+            if (tiles > Areas.MAX_TILES) return@launch say("Area too large (${number(tiles)} tiles). Lower the detail level or zoom in.", R.color.warn)
+            say("${number(tiles)} tiles. Calculating size…")
             val bytes = Estimate.bytes(list, box, depth)
             val free = a.filesDir.usableSpace
-            val line = "Size: about ${bytesText(bytes)} · ${number(tiles)} tiles\nFree space on this device: ${bytesText(free)}"
+            val line = "Size: about ${bytesText(bytes)} · ${number(tiles)} tiles\nFree space: ${bytesText(free)}"
             when {
-                bytes > free - Areas.KEEP_FREE_BYTES -> say("$line\nThere is not enough free space. Choose a smaller area.", R.color.warn)
-                bytes > Areas.LARGE_BYTES -> say("$line\nThis is a large download. Use Wi-Fi.", R.color.amber, ok = true)
+                bytes > free - Areas.KEEP_FREE_BYTES -> say("$line\nNot enough free space. Select a smaller area.", R.color.warn)
+                bytes > Areas.LARGE_BYTES -> say("$line\nLarge download. Use Wi-Fi.", R.color.amber, ok = true)
                 else -> say(line, ok = true)
             }
         }
@@ -346,16 +346,16 @@ class Panels(private val a: MainActivity) {
 
     private fun markers() {
         val list = a.markers.markers
-        if (list.isEmpty()) add(a.body("There are no markers. To add a marker, touch and hold the map for 2 seconds. To add a marker at your position, touch and hold the blue dot.", muted = true, top = 12))
+        if (list.isEmpty()) add(a.body("No markers. To add one, touch and hold the map for 2 seconds. To add one at your location, touch and hold the blue dot.", muted = true, top = 12))
         for (m in list.asReversed()) {
             val where = a.coords(m.lat, m.lon, brief = true)
-            add(a.row(m.label.ifEmpty { "(no name)" }, where + if (m.shared) " · shared" else "", dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
+            add(a.row(m.label.ifEmpty { "Unnamed" }, where + if (m.shared) " · Shared" else "", dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
         }
-        add(a.label("File"))
-        add(a.body("Save the markers to a file to use them in other map apps. On the Print a map page of the box, open the file with Load drawings.", muted = true))
+        add(a.label("Import / Export"))
+        add(a.body("Export markers to a GeoJSON file for use in other map apps. On the Print Map page of the server, open the file with Import Drawings.", muted = true))
         add(a.buttons(
-            a.button("Save to a file") { a.saveMarkersFile() }.apply { enable(list.isNotEmpty()) },
-            a.button("Add from a file") { a.loadMarkersFile() },
+            a.button("Export") { a.saveMarkersFile() }.apply { enable(list.isNotEmpty()) },
+            a.button("Import") { a.loadMarkersFile() },
         ))
     }
 
@@ -367,7 +367,7 @@ class Panels(private val a: MainActivity) {
         name.doAfterTextChanged { text -> a.markers.get(m.id)?.let { a.updateMarker(it.copy(label = text?.toString().orEmpty().trim())) } }
         add(name)
 
-        add(a.label("Colour"))
+        add(a.label("Color"))
         val swatches = ArrayList<View>()
         fun mark(chosen: String) = swatches.forEachIndexed { i, v -> v.isSelected = Palette.COLORS[i].first == chosen }
         for (half in Palette.COLORS.chunked(6)) add(LinearLayout(a).apply {
@@ -383,7 +383,7 @@ class Panels(private val a: MainActivity) {
         })
         mark(m.color)
 
-        add(a.label("Position"))
+        add(a.label("Location"))
         val grid = a.mono("", 18f, muted = false)
         val far = a.mono("")
         fun place() {
@@ -398,7 +398,7 @@ class Panels(private val a: MainActivity) {
 
         // One choice, off until the person makes it. A server known to have no sharing does not offer it.
         if (m.shared || a.sharing.box != Sharing.Box.NONE) {
-            markerShare = a.check("Share with the other devices", shareDetail(m), m.shared) { on -> hideKeyboard(); a.shareMarker(m.id, on); build() }
+            markerShare = a.check("Share with All Devices", shareDetail(m), m.shared) { on -> hideKeyboard(); a.shareMarker(m.id, on); build() }
                 .apply { layoutParams = lp(top = a.dp(10)) }.also(::add)
         }
         add(a.buttons(
@@ -409,15 +409,15 @@ class Panels(private val a: MainActivity) {
     }
 
     private fun shareDetail(m: Marker): String = when {
-        !m.shared -> "Off. Only this device has this marker."
-        a.sharing.waiting(m.id) -> "The app sends it to the box when there is a connection."
-        else -> "All devices on this box show this marker. They can change or delete it. Untick to keep the marker on this device only."
+        !m.shared -> "Off. This marker is on this device only."
+        a.sharing.waiting(m.id) -> "The app sends it to the server when connected."
+        else -> "All devices on this server show this marker and can change or delete it. Clear the check to keep it on this device only."
     }
 
     private fun confirmDeleteShared(id: String) {
         AlertDialog.Builder(a)
-            .setTitle("Delete this shared marker?")
-            .setMessage("The app deletes it from all devices on this box.")
+            .setTitle("Delete Shared Marker?")
+            .setMessage("This deletes the marker from all devices on this server.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Delete") { _, _ -> a.deleteMarker(id); if (screen == Screen.MARKER) back() }
             .show()
@@ -428,27 +428,27 @@ class Panels(private val a: MainActivity) {
     private fun sharing() {
         val s = a.sharing
         shareAbout = a.body(s.about(), muted = true, top = 12).also(::add)
-        add(a.label("My position"))
-        val name = a.field("Your name on the map", a.prefs.shareName, max = ShareJson.MAX_NAME) { hideKeyboard() }
+        add(a.label("My Location"))
+        val name = a.field("Display Name", a.prefs.shareName, max = ShareJson.MAX_NAME) { hideKeyboard() }
         if (s.on) {
             shareMine = a.body(s.mine()).also(::add)
-            add(a.body("Sharing continues when you leave the app or when the screen goes off. To stop it, press Stop sharing my position. When you do not move, the app sends your position less often. This saves the battery.", muted = true, top = 8))
-            add(a.label("Name"))
+            add(a.body("Sharing continues when you leave the app or the screen turns off. To stop, press Stop Sharing. When you are not moving, the app sends your location less often to save battery.", muted = true, top = 8))
+            add(a.label("Display Name"))
             name.doAfterTextChanged { text -> ShareJson.name(text?.toString().orEmpty()).ifEmpty { null }?.let { a.prefs.shareName = it } }
             add(name)
-            add(a.button("Stop sharing my position", Kind.DANGER) { a.sharing.switchOff(); rebuild(Screen.SHARING) }.apply { layoutParams = lp(top = a.dp(12)) })
+            add(a.button("Stop Sharing", Kind.DANGER) { a.sharing.switchOff(); rebuild(Screen.SHARING) }.apply { layoutParams = lp(top = a.dp(12)) })
         } else {
             shareMine = null
-            add(a.body("Off. When you share your position, the other devices on this box see it with this name. Sharing continues when you leave the app. It stops when you close Fieldmap."))
-            add(a.label("Name"))
+            add(a.body("Off. Other devices on this server see your location with this name. Sharing continues when you leave the app and stops when you exit Fieldmap."))
+            add(a.label("Display Name"))
             add(name)
-            val go = a.button("Share my position", Kind.PRIMARY) { a.startSharing(name.text.toString()) }
+            val go = a.button("Start Sharing", Kind.PRIMARY) { a.startSharing(name.text.toString()) }
             fun ready() = go.enable(a.prefs.server != null && s.box != Sharing.Box.NONE && ShareJson.name(name.text.toString()).isNotEmpty())
             name.doAfterTextChanged { ready() }
             ready()
             add(go.apply { layoutParams = lp(top = a.dp(12)) })
         }
-        add(a.label("Other devices"))
+        add(a.label("Other Devices"))
         sharePeers = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; layoutParams = lp() }.also(::add)
         sharePeerRows = "?"
         sharingFill()
@@ -469,7 +469,7 @@ class Panels(private val a: MainActivity) {
             // being pressed must not be taken away under the finger.
             sharePeerRows = rows
             list.removeAllViews()
-            if (others.isEmpty()) list.addView(a.body(if (s.box == Sharing.Box.ON && a.reachable) "No other device shares a position now." else "There are no positions to show.", muted = true))
+            if (others.isEmpty()) list.addView(a.body(if (s.box == Sharing.Box.ON && a.reachable) "No other devices are sharing." else "No locations to show.", muted = true))
             for (p in others) list.addView(a.row(p.name, peerDetail(p), icon = R.drawable.ic_next) { a.openPeer(p.uid, fromList = true) })
         } else {
             others.forEachIndexed { i, p -> (list.getChildAt(i)?.tag as? TextView)?.text = peerDetail(p) }
@@ -482,7 +482,7 @@ class Panels(private val a: MainActivity) {
         peerShown = a.sharing.other(uid)
         add(a.body(peerShown?.name.orEmpty(), top = 12).apply { setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22f); typeface = android.graphics.Typeface.DEFAULT_BOLD })
         peerWhen = a.body("", muted = true, top = 4).also(::add)
-        add(a.label("Position"))
+        add(a.label("Location"))
         peerGrid = a.mono("", 18f, muted = false).also(::add)
         peerWhere = a.mono("").also(::add)
         peerFill()
@@ -495,9 +495,9 @@ class Panels(private val a: MainActivity) {
         if (now != null) peerShown = now
         val p = peerShown ?: return
         peerWhen?.text = when {
-            now == null -> "${p.name} does not share a position now. This is the last position that the app got."
-            Ageing.look(p.age, info.interval, info.stale, p.still) == Ageing.Look.FRESH -> "Updated ${Ageing.text(p.age)}." + if (p.still && p.age >= 30) " ${p.name} does not move." else ""
-            else -> "Last update ${Ageing.text(p.age)}. ${p.name} can be at a different place now."
+            now == null -> "${p.name} is no longer sharing. This is the last location received."
+            Ageing.look(p.age, info.interval, info.stale, p.still) == Ageing.Look.FRESH -> "Updated ${Ageing.text(p.age)}." + if (p.still && p.age >= 30) " ${p.name} is not moving." else ""
+            else -> "Last update ${Ageing.text(p.age)}. ${p.name} may have moved."
         }
         peerGrid?.text = a.coords(p.lat, p.lon)
         peerWhere?.text = a.fromHere(p.lat, p.lon).orEmpty()
@@ -512,32 +512,32 @@ class Panels(private val a: MainActivity) {
 
     /* ---------- server ---------- */
 
-    /** The state of the connection in a few words, for the Box row of the menu. */
+    /** The state of the connection in a few words, for the Server row of the menu. */
     private fun boxState(): String = when {
-        a.remoteNow -> "connected through the internet"
-        a.reachable -> "connected"
-        else -> "offline"
+        a.remoteNow -> "Connected (remote)"
+        a.reachable -> "Connected"
+        else -> "Offline"
     }
 
     private fun serverState(): String = when {
-        a.prefs.server == null -> "Fieldmap shows the maps of a Fieldmap box.\n\n" +
-            "1. Connect this device to the Wi-Fi of the box.\n" +
-            "2. Press Find the box. Or type the address of the box and press Connect.\n\n" +
-            "Then save map areas. You can use them without a connection to the box."
-        a.remoteNow -> "Connected to the box through the internet. ${a.prefs.styles.size} map style${if (a.prefs.styles.size == 1) "" else "s"}."
-        a.reachable -> "Connected to the box. ${a.prefs.styles.size} map style${if (a.prefs.styles.size == 1) "" else "s"}."
-        else -> "Offline. There is no connection to the box. You can use the map areas on this device."
+        a.prefs.server == null -> "Fieldmap shows the maps of a Fieldmap server.\n\n" +
+            "1. Connect this device to the Wi-Fi of the server.\n" +
+            "2. Press Find Server, or enter the server address and press Connect.\n\n" +
+            "Then download offline areas to use the maps without a connection."
+        a.remoteNow -> "Connected (remote) · ${a.prefs.styles.size} map style${if (a.prefs.styles.size == 1) "" else "s"}"
+        a.reachable -> "Connected · ${a.prefs.styles.size} map style${if (a.prefs.styles.size == 1) "" else "s"}"
+        else -> "Offline. No connection to the server. You can use the offline areas on this device."
     }
 
     private fun server() {
         serverBusy = false
         serverText = a.body(serverState(), muted = true, top = 12).also(::add)
-        add(a.label("Address"))
+        add(a.label("Server Address"))
         val address = a.field("For example 192.168.1.10", a.prefs.server?.let(ServerAddress::short).orEmpty(), address = true) {}
         val go = { connect(address.text.toString()) }
         address.setOnEditorActionListener { _, _, _ -> go(); true }
         add(address)
-        add(a.buttons(a.button("Find the box") { find() }, a.button("Connect", Kind.PRIMARY) { go() }))
+        add(a.buttons(a.button("Find Server") { find() }, a.button("Connect", Kind.PRIMARY) { go() }))
         serverFound = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; layoutParams = lp(top = a.dp(8)) }.also(::add)
         serverRemote = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; layoutParams = lp() }.also(::add)
         remoteSection(null)
@@ -559,30 +559,30 @@ class Panels(private val a: MainActivity) {
         box.removeAllViews()
         val mine = a.enrolment()
         if (mine == null && info?.ready != true) return
-        box.addView(a.label("Remote access"))
+        box.addView(a.label("Remote Access"))
         if (info?.enabled == false || (info == null && a.remoteSwitchedOff)) {
-            box.addView(a.body("Remote access is off on the box. To switch it on, open the Admin page of the box in a browser. " +
+            box.addView(a.body("Remote connectivity is disabled on the server. To enable it, open Admin > Remote Access on the server in a browser. " +
                 (if (mine != null) "This device stays paired." else "You can then pair this device."), muted = true))
             return
         }
         if (mine != null) {
-            // The box's own words about being reached from outside: fresh at home, as last heard away.
+            // The server's own words about remote connections: fresh at home, as last heard away.
             val reach = info?.reach?.ifEmpty { null } ?: mine.reach
             box.addView(a.body(when {
-                a.netbirdNow -> "This device is paired. It is connected to the box through the internet now. The connection uses the NetBird network of the box."
-                a.remoteNow -> "This device is paired. It is connected to the box through the internet now."
-                a.reachable -> "This device is paired. When this device is not on the box's network, the app connects to the box through the internet."
-                else -> "This device is paired, but the box does not answer through the internet. Connect to the box's network one time. The app then gets the new address of the box."
+                a.netbirdNow -> "Paired. Connected remotely through NetBird VPN."
+                a.remoteNow -> "Paired. Connected remotely."
+                a.reachable -> "Paired. Remote connection available."
+                else -> "Paired, but the server does not respond over the internet. Connect to the server's network once to get its new address."
             }, muted = true))
-            if (reach.isNotEmpty()) box.addView(a.body("The box says: $reach", muted = true, top = 8))
-            box.addView(a.button("Unpair this device", Kind.DANGER) { a.removeRemote(); remoteSection(info) }.apply { layoutParams = lp(top = a.dp(10)) })
+            if (reach.isNotEmpty()) box.addView(a.body("Server status: $reach", muted = true, top = 8))
+            box.addView(a.button("Unpair Device", Kind.DANGER) { a.removeRemote(); remoteSection(info) }.apply { layoutParams = lp(top = a.dp(10)) })
             return
         }
-        box.addView(a.body("Pair this device to use the box through the internet when you are not on the box's network. " +
-            (if (info?.pairingOpen == true) "Pairing is open on the box now." else "First, open the Devices page of the box and press Pair a device."), muted = true))
-        val code = if (info?.pin == true) a.field("The box's code", "", max = 64) { hideKeyboard() }.apply { layoutParams = lp(top = a.dp(10)) }.also(box::addView) else null
+        box.addView(a.body("Pair this device to connect to the server over the internet when you are away from its network. " +
+            (if (info?.pairingOpen == true) "Pairing mode is active on the server." else "First, open Admin > Devices on the server and press Start Pairing."), muted = true))
+        val code = if (info?.pin == true) a.field("Access Code", "", max = 64) { hideKeyboard() }.apply { layoutParams = lp(top = a.dp(10)) }.also(box::addView) else null
         val said = a.body("", top = 8).apply { setTextColor(a.color(R.color.warn)); visibility = View.GONE }
-        val button = a.button("Pair this device", Kind.PRIMARY) {}
+        val button = a.button("Pair Device", Kind.PRIMARY) {}
         button.setOnClickListener {
             hideKeyboard()
             button.enable(false)
@@ -609,12 +609,12 @@ class Panels(private val a: MainActivity) {
     private fun connect(typed: String) {
         if (serverBusy) return
         hideKeyboard()
-        if (ServerAddress.candidates(typed).isEmpty()) return failed("Type the address of the box. For example: 192.168.1.10.")
-        busy("The app connects to the box…")
+        if (ServerAddress.candidates(typed).isEmpty()) return failed("Enter the server address. For example: 192.168.1.10.")
+        busy("Connecting to server…")
         a.scope.launch {
             val found = TileServer.connect(typed)
             if (screen != Screen.SERVER) return@launch
-            if (found == null) failed("No box answered at this address. Make sure that the address is correct. Make sure that this device is on the box's network.")
+            if (found == null) failed("No server responded at this address. Check the address and make sure this device is on the server's network.")
             else { serverBusy = false; a.useServer(found) }
         }
     }
@@ -622,17 +622,17 @@ class Panels(private val a: MainActivity) {
     private fun find() {
         if (serverBusy) return
         hideKeyboard()
-        busy("The app looks for the box…")
+        busy("Searching for server…")
         a.scope.launch {
             val result = Finder.find()
             if (screen != Screen.SERVER) return@launch
             when {
-                !result.searched -> failed("This device is not on a Wi-Fi network. Connect to the box's network, or type the address of the box.")
-                result.found.isEmpty() -> failed("The app did not find a box on this network. Type the address of the box.")
+                !result.searched -> failed("This device is not on a Wi-Fi network. Connect to the server's network, or enter the server address.")
+                result.found.isEmpty() -> failed("No server found on this network. Enter the server address.")
                 result.found.size == 1 -> { serverBusy = false; a.useServer(result.found[0]) }
                 else -> {
                     serverBusy = false
-                    serverText?.text = "The app found ${result.found.size} boxes. Choose one."
+                    serverText?.text = "Found ${result.found.size} servers. Select one."
                     for (found in result.found) serverFound?.addView(foundRow(found))
                 }
             }

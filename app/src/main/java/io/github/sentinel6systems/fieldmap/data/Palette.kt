@@ -5,7 +5,7 @@ object Palette {
     val COLORS: List<Pair<String, String>> = listOf(
         "#d7263d" to "Red", "#f46036" to "Orange", "#e6b800" to "Yellow", "#2a9d3f" to "Green",
         "#1b998b" to "Teal", "#1f5fa8" to "Blue", "#6f2dbd" to "Purple", "#e83e8c" to "Pink",
-        "#8b5a2b" to "Brown", "#111111" to "Black", "#6c757d" to "Grey", "#ffffff" to "White",
+        "#8b5a2b" to "Brown", "#111111" to "Black", "#6c757d" to "Gray", "#ffffff" to "White",
     )
     const val DEFAULT = "#d7263d"
 

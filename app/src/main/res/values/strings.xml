@@ -4,10 +4,10 @@
     <string name="attribution">© OpenMapTiles © OpenStreetMap contributors</string>
     <string name="menu">Menu</string>
     <string name="follow">Follow</string>
-    <string name="north_up">North up</string>
-    <string name="head_up">Head up</string>
-    <string name="zoom_in">Zoom in</string>
-    <string name="zoom_out">Zoom out</string>
+    <string name="north_up">North Up</string>
+    <string name="head_up">Heading Up</string>
+    <string name="zoom_in">Zoom In</string>
+    <string name="zoom_out">Zoom Out</string>
     <string name="back">Back</string>
     <string name="close">Close</string>
     <string name="sharing">Sharing</string>

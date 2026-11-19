@@ -88,7 +88,7 @@ object Http {
         if (way != Route.REMOTE || home == null || remote == null || url.scheme != home.scheme || url.host != home.host || url.port != home.port) {
             return chain.proceed(request)
         }
-        val to = remote.endpoint ?: throw IOException("The box gave no address for use from outside.")
+        val to = remote.endpoint ?: throw IOException("The server has no address for remote connections.")
         // The same path at the gateway. The two headers tell it the home address, so that the
         // tile server writes that into its answers as it does at home.
         val authority = if (home.port == HttpUrl.defaultPort(home.scheme)) home.host else "${home.host}:${home.port}"

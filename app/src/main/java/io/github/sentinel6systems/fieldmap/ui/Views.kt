@@ -16,6 +16,7 @@ import android.view.animation.LinearInterpolator
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
 import io.github.sentinel6systems.fieldmap.R
 import java.util.Locale
 import kotlin.math.floor
@@ -42,7 +43,9 @@ class MapButton @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         caption.isAllCaps = true
         caption.gravity = Gravity.CENTER
         caption.maxLines = 1
-        addView(caption, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(2) })
+        // A long caption ("Heading Up") gets a smaller size, so that it fits the button.
+        TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(caption, 7, 10, 1, TypedValue.COMPLEX_UNIT_SP)
+        addView(caption, LayoutParams(LayoutParams.MATCH_PARENT, context.dp(14)).apply { topMargin = context.dp(2); marginStart = context.dp(3); marginEnd = context.dp(3) })
         // The two attributes are read by their place in the list.
         val a = context.obtainStyledAttributes(attrs, intArrayOf(android.R.attr.src, android.R.attr.text))
         set(a.getResourceId(0, 0), a.getString(1).orEmpty(), false)

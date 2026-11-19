@@ -138,7 +138,7 @@ fun Context.row(title: String, detail: CharSequence? = null, dot: Int? = null, i
 /** A choice that is on or off: a box with a tick in it, the words beside it. The whole row is the target. */
 fun Context.check(title: String, detail: CharSequence?, on: Boolean, onChange: (Boolean) -> Unit): LinearLayout =
     row(title, detail, icon = null) { onChange(!on) }.apply {
-        contentDescription = "$title: ${if (on) "on" else "off"}"
+        contentDescription = "$title: ${if (on) "On" else "Off"}"
         addView(FrameLayout(context).apply {
             setBackgroundResource(if (on) R.drawable.bg_primary_normal else R.drawable.bg_field)
             if (on) addView(ImageView(context).apply {
