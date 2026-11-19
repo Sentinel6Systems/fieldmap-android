@@ -107,11 +107,11 @@ object RemoteAccess {
                         return@withContext Enrolment(base, o.optString("id"), o.getString("certificate"), o.getString("ca"),
                             o.optString("gatewayName"), endpointsFrom(o.optJSONArray("endpoints")))
                     }
-                    if (r.code != 404) last = Refused(o.optString("error").ifEmpty { "The server refused (${r.code})." }, o.optBoolean("pin"))
+                    if (r.code != 404) last = Refused(o.optString("error").ifEmpty { "The box did not accept the request (${r.code})." }, o.optBoolean("pin"))
                 }
             } catch (e: Exception) { /* try the next place */ }
         }
-        throw last ?: Refused("The box did not answer. A device is paired on the box's own network.")
+        throw last ?: Refused("The box did not answer. Pair the device on the box's network.")
     }
 
     /** The phone's key, made the first time it is asked for. */

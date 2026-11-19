@@ -1,33 +1,35 @@
 # fieldmap-android
 
 Fieldmap is a small Android map app for the maps of a [fieldmap-server](https://github.com/Sentinel6Systems/fieldmap-server)
-box. At home, on the box's network, you look at its maps and save the areas you need. Away from it, with no
-network at all, your phone or tablet shows those areas with your GPS position on them, and you can drop coloured dot
-markers on what you find.
+box. On the box's network, you look at the maps of the box and save the map areas that you need. Without a
+connection, your phone or tablet shows these map areas with your GPS position. You can put coloured markers on
+the map.
 
-It is meant for driving, hiking and scouting: one map, a few large buttons, readable in sunlight and usable
-with gloves. It is not a route planner: it shows where you are, it does not give turn-by-turn directions.
+The app is for driving, hiking and scouting. It has one map and a few large buttons. You can read it in sunlight
+and use it with gloves. It shows your position. It does not give turn-by-turn directions.
 
-- **The maps of your box**: every style the tile server offers (topographic light and dark, OpenStreetMap, ...),
-  drawn on the device from vector tiles, so they stay sharp at any zoom.
-- **Saved areas**: frame an area, see about how large the download is, press Download. Everything the map needs
-  comes along: the tiles of every layer (base map, contours, hillshade), the style, the fonts and the symbols.
-- **Where you are**: the device's GPS position on the map, with one button to follow it north-up or
-  heading-up. The grid reference (MGRS) and latitude/longitude are always at the top.
-- **Markers**: hold a finger on a spot for two seconds and it is marked. Name the dot and pick one of twelve
-  colours. They are the markers of the box's print tool, and the two can exchange them as a file.
-- **Away from home, while there is internet**: pair the device with the box once, at home, with one button. From
-  then on the app reaches the box from anywhere, through the box's own router, over an encrypted link that only
-  paired devices can use. No account, nothing of anyone else's in between.
-- **Sharing with the other devices of the box**: switch it on and the others see where you are, by the name you
-  give, also while the device is in your pocket; tick a marker and everyone has it. Off until you switch it on,
-  and only between devices that reach the same box. No account for this either.
-- **Nothing else**: no account, no advertising, no analytics. The app talks only to the server you give it.
+- **The maps of your box**: all styles of the box, for example topographic light and dark, and OpenStreetMap.
+  The device draws the maps from vector tiles, so they stay sharp at all zoom levels.
+- **Map areas**: put an area in the frame, read the size of the download, and press **Download**. A map area
+  has all the map data: the tiles of each layer, the style, the fonts and the symbols.
+- **Your position**: the GPS position of the device on the map. One button follows your position, with north up
+  or with your direction up. The top of the screen always shows the grid reference (MGRS) and the latitude and
+  longitude.
+- **Markers**: push and hold a point on the map for 2 seconds to add a marker. Give it a name and one of 12
+  colours. The **Print a map** page of the box uses the same markers. A file moves them between the two.
+- **From outside**: pair the device with the box one time, on the box's network. After that, the app connects to
+  the box from outside, through the router of the box. The connection is encrypted, and only paired devices can
+  use it. There is no account and no third party.
+- **Sharing**: when you switch it on, the other devices on the box see your position with your name. This
+  continues when the device is in your pocket. Tick a marker to share it with all devices. Sharing is off until
+  you switch it on. There is no account.
+- **Nothing more**: no account, no advertising, no analytics. The app connects only to the box that you set.
 
-It works with any [TileServer GL](https://github.com/maptiler/tileserver-gl) server that offers vector styles;
-it was made for fieldmap-server and looks like its pages.
+The app works with all [TileServer GL](https://github.com/maptiler/tileserver-gl) servers that have vector
+styles. It was made for fieldmap-server and looks like its pages.
 
-Status: first version, 0.1.0. Tested on an emulator and one phone (see "What was tested"). Needs Android 8.0 or newer.
+Status: first version, 0.1.0. Tested on an emulator and on two phones (see "What was tested"). It needs Android
+8.0 or newer.
 
 ## Install
 
@@ -73,160 +75,178 @@ Without `-Pfieldmap.signing` the release build is left unsigned.
 
 ## Use
 
-### At home: connect and save
+### On the box's network: connect and save
 
-1. Join the network the box is on (its own Wi-Fi, or your home network).
-2. Open the app. The first time it asks for the server: press **Find on this network**, or type the address
-   you open the box's Maps page at (for example `192.168.1.10`) and press **Connect**. The app remembers it.
-3. Move the map to the area you want. **Menu › Saved areas › Save a new area**: move and zoom until the area is
-   inside the frame, give it a name, read the size, press **Download**.
-4. Leave the app open until the download has finished (the strip at the top shows "Saving 42%", and the screen
-   stays on). If it is interrupted, it carries on the next time the app is open and the box is in reach.
+1. Connect the device to the box's network. This is the Wi-Fi of the box, or the network at home.
+2. Open the app. The first time, the app shows the **Box** panel.
+3. Press **Find the box**. Or type the address of the box, for example `192.168.1.10`, and press **Connect**.
+   The app keeps the address.
+4. Move the map to the area that you want.
+5. Go to **Menu › Map areas › Save a map area**.
+6. Move and zoom the map until the area is in the frame.
+7. Give the map area a name, read the size, and press **Download**.
+8. Keep the app open until the download is complete. The top of the screen shows "Download 42%". The screen
+   stays on during the download.
 
-**Menu › Map style** changes the style. An area is saved in the style that is showing. The tiles are stored
-once, so saving the same area again in a second style adds only that style's own small files.
+If the download stops, it continues the next time that the app is open on the box's network.
 
-### In the field
+**Menu › Map style** changes the style. The app saves a map area in the style that shows on the screen. The
+app keeps each tile only one time. When you save the same area in a second style, the app adds only the small
+files of that style.
 
-Open the app. The strip at the top says **Offline** and the map draws from what is saved.
+### Without a connection
+
+Open the app. The top of the screen shows **Offline**. The map shows the map areas on the device.
 
 | Button | What it does |
 |---|---|
-| **Follow** | Shows where you are and keeps the map on you, north up. Press again: the direction you are heading is up (by the direction of travel when driving, by the compass when walking). Drag the map to let go. |
-| **+ −** | Zoom. Pinching and double-tapping work too. |
-| **Menu** | Map style, saved areas, markers, sharing, server, and **Close Fieldmap**. |
+| **Follow** | Shows your position and keeps the map on it, with north up. Press again to put your direction up. When you drive, the app uses the direction of travel. When you walk, it uses the compass. Move the map to stop. |
+| **+ −** | Zoom. You can also pinch or double-tap. |
+| **Menu** | Map style, map areas, markers, sharing, box, and **Close Fieldmap**. |
 
-**To mark a spot, press and hold it on the map for two seconds.** A ring fills around your finger; when it is
-full the marker is there and its panel opens. It gets the next name (P1, P2, ...) and the colour you used last;
-change them in the panel, or just close it. To mark where you are, hold the blue dot: the marker is put at your
-position exactly.
+**To add a marker, push and hold a point on the map for 2 seconds.** A ring fills around your finger. When the
+ring is full, the app adds the marker and opens its panel. The marker gets the next name (P1, P2, ...) and the
+last colour that you used. You can change them in the panel. To add a marker at your position, hold the blue
+dot.
 
-Tap a marker to rename it, change its colour, move it to the crosshair, delete it, or read its grid reference
-and how far and in which direction it is from you. The screen stays on while the map follows you.
+Tap a marker to see its panel. In the panel you can change the name and the colour, move the marker to the
+crosshair, and delete it. The panel also shows the grid reference, the distance and the bearing. The screen
+stays on when the map follows your position.
 
-### Away from home: pairing
+### From outside: pairing
 
-A fieldmap-server box lets devices that were paired on its own network use its maps from anywhere (its README,
-"Remote access for the Android app"). It is off until the box's owner switches it on. At home, on the box's
-network:
+A fieldmap-server box can let paired devices use its maps from outside. The README of the box tells more in
+"Remote access for the Android app". Remote access is off until the owner of the box switches it on. Do these
+steps on the box's network:
 
-1. On the box's pages, open **Admin**, **Remote access** and press **Switch on**. If it is on already, open
-   **Devices** and press **Pair a device**. Either opens pairing for ten minutes.
-2. In the app: **Menu › Server › Pair this device**.
+1. On the pages of the box, open **Admin › Remote access** and press **Switch on**. If remote access is on
+   already, open **Devices** and press **Pair a device**. Pairing then opens for 10 minutes.
+2. In the app, go to **Menu › Box** and press **Pair this device**.
 
-That is all. Away from the box's network the strip at the top reads **Remote** instead of **Connected**, and the
-map loads as at home, only slower. With no internet it reads **Offline** and the saved areas work as before.
+Outside the box's network, the top of the screen shows **Outside** in place of **Connected**. The map loads as
+on the box's network, but slower. Without the internet, it shows **Offline**, and the map areas work as before.
 
-What happens: the app makes a key in the device's key store, where it cannot be read out again, and the box gives
-it a certificate for that key, the addresses it can be reached at from outside, and the name in its gateway's
-certificate. Away from home the app tries those addresses, the one that answered last first, and trusts only the
-box's own certificate there. Whenever the device is home again it picks up any new address. The box is told the
-device's make and model, so that its owner can tell the devices on its list apart.
+How it works: the app makes a key in the key store of the device. Nothing can read the key out of the key store.
+The box gives the app a certificate for this key and the addresses of the box on the internet. Outside the box's
+network, the app tries these addresses. It tries the last address that worked first. The app trusts only the
+certificate of the box. When the device is on the box's network again, the app gets the new addresses. The box
+keeps the make and the model of the device, so that the owner can see which device is which.
 
-On the box's Devices page its owner can remove a device (the app then says so the next time it tries from outside,
-and it can be paired again at home). Under Admin, Remote access, the owner can switch remote access off
-altogether (the app says so, and stays paired for when it is switched on again). **Unpair this device** in the app
-forgets the pairing on the device.
+The owner can remove a device on the **Devices** page of the box. The app then tells you this the next time that
+it tries to connect from outside. You can pair the device again on the box's network. The owner can also switch
+off remote access under **Admin › Remote access**. The app tells you this, and the device stays paired.
+**Unpair this device** in the app removes the pairing from the device.
 
-Whether the box can be reached from outside depends on its router and internet provider; the Server panel shows
-what the box says about it. This is not a system VPN: nothing else on the device uses it, no VPN icon appears, and
-another VPN on the device keeps working.
+The router and the internet provider of the box decide if the box can be reached from outside. The **Box** panel
+shows what the box says about it. This is not a VPN of the system. No other app on the device uses it, there is
+no VPN icon, and a different VPN on the device continues to work.
 
 ### Sharing with other devices
 
-Devices that reach the same fieldmap-server box can show each other where they are and keep one set of markers
-in common. It goes through the box: at home over its network, away from home through the pairing above. There
-is nothing more to sign in to. Everyone who reaches the box sees everything that is shared on it.
+Devices that connect to the same box can see the positions of the other devices. They can also share markers.
+Sharing goes through the box: on the box's network, or from outside with pairing. There is no additional sign-in.
+All devices that connect to the box see all that is shared on it.
 
-Sharing is a feature of the box, and it is off there until the box's owner switches it on, on the box's
-**Devices** page. While it is off the app says "Sharing is switched off on the box".
+Sharing is a function of the box. It is off until the owner of the box switches it on, on the **Devices** page of
+the box. When it is off, the app shows "Sharing is off on the box".
 
-**Your position.** It is not shared until you switch that on: **Menu › Sharing**, type the name the others
-should see you by (up to 24 characters), press **Share my position**. The strip at the top then shows a
-**Sharing** tag for as long as it is on: amber while your position is getting through, grey while it is not
-(the box out of reach, no GPS position yet). **Stop sharing my position**, in the same place, takes you off the
-others' maps at once. The setting is remembered: if sharing was on when you closed the app, it is on again when
-you open it, and the tag says so.
+**Your position.** The app does not share your position until you switch it on:
 
-Once it is on, your position keeps being shared when you leave the app or the screen goes off. A notification
-says so for as long as it lasts ("Fieldmap is sharing your position"), with a **Stop sharing** button on it.
-While sharing is on, the Back button on the map leaves the app as the Home button does; it does not close it.
+1. Go to **Menu › Sharing**.
+2. Type the name that the other devices show for you. The name can have 24 characters.
+3. Press **Share my position**.
 
-It ends when you close the app for good: **Menu › Close Fieldmap**, or swipe the app away in the list of recent
-apps. Either takes you off the others' maps at once. **Stop sharing my position**, in the Sharing panel or on
-the notification, ends the sharing and leaves the app open.
+The top of the screen then shows a **Sharing** tag. The tag is amber when your position gets to the box. It is
+grey when your position does not get to the box, for example without a connection or without a GPS position.
+**Stop sharing my position** removes your position from the maps of the other devices immediately. The app
+keeps this setting. If sharing was on when you closed the app, it is on again when you open the app.
 
-**The battery.** With the app on the screen your position is sent every few seconds. In the background the app
-does as little as it can:
+Sharing continues when you leave the app or when the screen goes off. A notification shows this
+("Fieldmap shares your position"). It has a **Stop sharing** button. When sharing is on, the Back button on the
+map leaves the app, as the Home button does. It does not close the app.
 
-- on the move it takes and sends a position about three times a minute, at rest once a minute; in between,
-  Android switches the satellite receiver off
-- at rest it leaves it to the device's motion sensor, which costs next to nothing, to say when you set off again
-- it only sends; it does not ask who else is there, or for markers, until you look at the map again
-- it holds the device awake only for the seconds a message takes
+Sharing stops when you close the app with **Menu › Close Fieldmap**, or when you swipe the app away in the list
+of recent apps. This also removes your position from the maps of the other devices immediately. **Stop sharing
+my position**, in the **Sharing** panel or in the notification, stops sharing and keeps the app open.
 
-The others see a device that rests as live for a minute and a half without news, and one on the move for half
-a minute; after that it turns grey. Android may still end the sharing by itself, on a device that is very short
-of memory or has lain still for hours in its deepest sleep; your position then turns grey on the others' maps
-and goes after two minutes, and sharing starts again when you open the app.
+**The battery.** When the app is on the screen, it sends your position every few seconds. When the app is in the
+background, it does as little as possible:
 
-**The others.** Each is a light blue diamond with the name beside it, so that it cannot be taken for a marker (a
-round dot) or for your own position. A diamond that has not been heard from for a while turns grey and fades;
-when the box drops the position, it goes from the map. Tap a diamond for the name, how long ago the position was
-updated, its grid reference, and how far and in which direction it is from you. **Menu › Sharing** lists
-everyone who is there now. You see the others whether or not you share your own position.
+- When you move, it sends a position approximately three times a minute. When you do not move, it sends one
+  position each minute. Between the positions, Android switches off the GPS receiver.
+- When you do not move, the motion sensor of the device tells the app when you move again. This sensor uses
+  almost no power.
+- It only sends your position. It does not get the other positions or the markers until you look at the map
+  again.
+- It keeps the device awake only for the few seconds that one message needs.
 
-**Shared markers.** A marker is on your device only, until you tick **Share with everyone on this box** in its
-panel. Then everyone has it, and anyone can rename, recolour, move or delete it: the last change wins.
-Unticking takes it off the box for everyone and keeps it on your device. Deleting a shared marker deletes it for
-everyone (the app asks first). Shared markers are kept on the device, so they are still on the map with no
-network. Changes you make to them out of reach are sent when the box answers again; if somebody else changed the
-same marker in the meantime, the later change stays.
+The other devices show a device that does not move as current for 90 seconds. They show a device that moves as
+current for 30 seconds. After that time, its symbol turns grey. Android can stop the sharing itself, for example
+when the device has too little memory, or after many hours without movement. Your position then turns grey on
+the maps of the other devices, and goes after two minutes. Sharing starts again when you open the app.
 
-What is not there yet (see "What is next"): groups (one box is one room), messages, and working with TAK apps.
+**The other devices.** Each other device is a light blue diamond with its name. A marker is a round dot, and your
+own position is the blue dot with the arrow. When a device does not send for some time, its diamond turns grey
+and fades. When the box removes the position, the diamond goes from the map. Tap a diamond to see the name, the
+time of the last update, the grid reference, the distance and the bearing. **Menu › Sharing** shows a list of
+the other devices. You see the other devices also when you do not share your own position.
 
-### Markers and the print tool
+**Shared markers.** A marker is only on your device until you tick **Share with everyone on this box** in its
+panel. Then all devices have it. All devices can change the name, the colour and the position, or delete it.
+The last change stays. Remove the tick to remove the marker from the other devices and keep it on your device.
+When you delete a shared marker, the app deletes it from all devices. The app asks first. The device keeps the
+shared markers, so they show also without a connection. When you change a shared marker without a connection,
+the app sends the change when the connection comes back. If a different device changed the same marker in the
+meantime, the later change stays.
 
-**Menu › Markers › Save to a file** writes the markers as a GeoJSON file. The print tool of fieldmap-server
-reads it (**Load drawings**), and so does other map software (QGIS, geojson.io, TAK tools). **Load from a
-file** adds the markers of a file the print tool saved; its arrows and shapes are left out, because the app
-shows markers only.
+Not available yet (see "What is next"): groups (one box is one group), messages, and TAK apps.
 
-## How saving works, and its limits
+### Markers in a file
 
-- A saved area holds every zoom level from the whole world down to zoom 14, which is as deep as the vector
-  tiles go; closer in, the map is drawn from the zoom 14 tiles. Hillshade is saved as deep as the box has it, up
-  to zoom 14. A small area of 1 m hillshade above that (fieldmap-server's `hillshade-detail`) is not saved.
-- The size shown before a download is an estimate: the app counts the tiles and measures a sample of them on
-  the box. Towns are heavier than empty country, so the real size differs somewhat.
-- A download that would not leave 500 MB free on the device is refused, and so is an area of more than 200,000
-  tiles (save it as several areas). Above 1 GB the app says that the download is large.
-- Maps you only looked at are kept too (up to 200 MB, the oldest dropped first), so the neighbourhood of what
-  you browsed at home often works without having been saved. Do not rely on it: save what you need.
-- **Update all saved areas** downloads every saved area again, for after the maps on the box were rebuilt.
-  (One area cannot be refreshed alone: areas share their files, and a file that is already on the device counts
-  as done.) Deleting an area frees its space, and also drops the maps that were only looked at.
-- Saved areas remember the address they came from. If the box gets another address, they still work, and
-  new areas are saved from the new address.
+**Menu › Markers › Save to a file** writes the markers to a GeoJSON file. The **Print a map** page of the box can
+open this file with **Load drawings**. Other map software can also open it, for example QGIS, geojson.io and TAK
+tools. **Add from a file** adds the markers of a file. The app does not show arrows and shapes from the file. It
+shows only markers.
+
+## Map areas: how they work, and their limits
+
+- A map area has all zoom levels from the whole world down to zoom 14. Zoom 14 is the deepest level of the
+  vector tiles. Closer in, the app draws the map from the zoom 14 tiles. The app saves hillshade as deep as the
+  box has it, to a maximum of zoom 14. The app does not save the 1 m hillshade above zoom 14
+  (`hillshade-detail` of fieldmap-server).
+- The size before a download is an estimate. The app counts the tiles and measures some of them on the box.
+  Towns have more data than empty land, so the real size is a little different.
+- The app does not start a download that leaves less than 500 MB free on the device. It also does not start a
+  download of more than 200,000 tiles. Save a large area as two or more map areas. Above 1 GB, the app tells you
+  that the download is large.
+- The app also keeps the maps that you only looked at, to a maximum of 200 MB. It removes the oldest first.
+  Thus the area around the maps that you looked at on the box's network often works without a connection. Do not
+  rely on this. Save the map areas that you need.
+- **Update all map areas** downloads all map areas again. Use it after a new build of the maps on the box. You
+  cannot update one map area only, because the map areas share their files.
+- When you delete a map area, the app removes its maps from the device. It also removes the maps that you only
+  looked at.
+- Each map area keeps the address of the box. If the box gets a different address, the map areas still work. The
+  app saves new map areas from the new address.
 - The download runs while the app is open. Downloads do not run in the background yet.
 
 ## Permissions
 
 | Permission | Why |
 |---|---|
-| Location | To show where you are. Asked the first time you press Follow. The position stays on the device, unless you switch on sharing it: then it goes to your box, and from there to the devices that reach it, until you stop sharing or close the app. The app asks only for the position "while the app is in use"; it does not ask for "all the time". |
-| Notifications | For the one notification that says your position is being shared. Asked when you switch sharing on, and when the app is opened with sharing on, for as long as it is not allowed (Android 13 and later). Without it sharing works the same; Android then shows it only in its list of running apps. |
-| Run in the background, with location | The same thing: what keeps a shared position going while the app is not on the screen. Only while sharing is on. |
-| Keep the device awake | For the few seconds a position takes to send from the background. |
-| Network | To reach the tile server you set. Plain `http` is allowed, because a box on a home network has no certificate. |
+| Location | To show your position. The app asks the first time that you press **Follow**. Your position stays on the device until you switch on sharing. Then the app sends it to your box, and the box shows it to the devices that connect to it, until you stop sharing or close the app. The app asks only for "while the app is in use". It does not ask for "all the time". |
+| Notifications | For the notification that shows that the app shares your position. The app asks when you switch on sharing, and when you open the app with sharing on, until you allow it (Android 13 and newer). Sharing works also without it. Android then shows it only in the list of running apps. |
+| Run in the background, with location | To continue sharing when the app is not on the screen. Only when sharing is on. |
+| Keep the device awake | For the few seconds that one position needs to go to the box from the background. |
+| Network | To connect to the box that you set. The app can use plain `http`, because a box on a home network has no certificate. |
 
-A box with its own Wi-Fi often has no internet behind it, and Android then keeps sending the apps' traffic over
-mobile data, where the box cannot be found. When the server does not answer the usual way and the device is on
-such a network, the app talks to it over that network directly. Nothing has to be set for this.
+A box with its own Wi-Fi often has no internet. Android then sends the traffic of the apps over mobile data, and
+the box is not there. When the box does not answer, and the device is on such a network, the app connects to the
+box over that network directly. You do not have to set anything for this.
 
-**Find on this network** asks each of the up to 254 neighbouring addresses of the device's Wi-Fi network whether
-a tile server answers there (web port, then port 8080). It runs only when you press the button, and only on a
-private network.
+**Find the box** asks each of the up to 254 neighbouring addresses of the Wi-Fi network if a box answers there.
+It asks on the web port first, then on port 8080. It runs only when you press the button, and only on a private
+network.
 
 ## What was tested
 
@@ -251,7 +271,7 @@ It was then put on a Google Pixel phone (Android 16) and checked by hand and ove
   tile sets of the style
 
 Pairing and the remote link were tested on the emulator against fieldmap-server's gateway: pairing refused while
-closed and done in one press once opened on the box's Devices page, the switch to **Remote** when the home address
+closed and done in one press once opened on the box's Devices page, the switch to **Outside** (then called **Remote**) when the home address
 went away, a device removed on the box being told so, remote access switched off and on again (the device stays
 paired). The remote link was later confirmed by hand from outside, through a home router, with the Pixel and a
 box behind Internet-in-a-Box.
@@ -267,7 +287,7 @@ its gateway, with a second device played by a script:
 - out of reach: a shared marker renamed, one deleted and a new one shared, all sent when the box answered again;
   the same marker changed on both sides, where the later change stayed, either way round
 - sharing switched off on the box (the app says so and asks again once a minute) and on again
-- all of it again through the gateway, with the home address cut off (the strip reads **Remote**)
+- all of it again through the gateway, with the home address cut off (the strip reads **Outside**)
 
 Sharing was then tried by hand with two phones (a Google Pixel on Android 16 and a rugged Android 13 phone) on a
 fieldmap-server box behind Internet-in-a-Box, on the box's network: each showed the other, and a marker shared on
@@ -320,7 +340,7 @@ Not built yet, in no fixed order:
 | `app/src/main/java/.../ui/` | The one screen (`MainActivity`), its panels (`Panels`), the rounds of live sharing (`Sharing`), and the pieces they are built from (`Ui`, `Views`) |
 | `.../server/` | Talking to the tile server: its styles, its tile sets, finding it on the network, and which way requests travel (`Http`) |
 | `.../remote/` | Pairing: the device's key, being let in by the box, its addresses, the connection to its gateway |
-| `.../offline/` | Saved areas on top of MapLibre's offline regions; counting tiles and estimating sizes |
+| `.../offline/` | Map areas on top of MapLibre's offline regions; counting tiles and estimating sizes |
 | `.../data/` | Markers and their file format |
 | `.../share/` | Live sharing: what is sent to and read from the box's `/mapshare/` service, bringing shared markers together (last change wins), how a position ages, and the service that keeps the position shared in the background (`ShareService`) |
 | `.../geo/` | UTM and MGRS; the GPS source |

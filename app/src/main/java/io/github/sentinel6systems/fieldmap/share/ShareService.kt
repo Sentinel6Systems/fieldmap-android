@@ -273,16 +273,16 @@ class ShareService : Service() {
     private fun notification(): Notification {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Sharing your position", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Shown for as long as this device's position is shared with the others on your box."
+            description = "Shows when the app shares the position of this device."
             setShowBadge(false)
         })
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, ShareService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_locate)
-            .setContentTitle("Fieldmap is sharing your position")
-            .setContentText("Also with the app in the background. It stops when you close Fieldmap.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("Also with the app in the background or the screen off. It stops when you close Fieldmap: Menu, Close Fieldmap, or swipe the app away."))
+            .setContentTitle("Fieldmap shares your position")
+            .setContentText("Sharing continues when you leave the app. Close Fieldmap to stop it.")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("Sharing continues when you leave the app or when the screen goes off. To stop it, press Stop sharing or close Fieldmap."))
             .setContentIntent(open)
             .addAction(0, "Stop sharing", stop)
             .setOngoing(true)

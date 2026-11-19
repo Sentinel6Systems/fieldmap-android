@@ -211,7 +211,7 @@ class Sharing(private val a: MainActivity) {
         peers = emptyList()
         sentAt = 0
         rev = null
-        if (!saidOff && (on || !a.prefs.pending.empty)) a.toast("Sharing is switched off on the box. Switch it on on the box's Devices page.")
+        if (!saidOff && (on || !a.prefs.pending.empty)) a.toast("Sharing is off on the box. To switch it on, open the Devices page of the box.")
         saidOff = true
     }
 
@@ -259,7 +259,7 @@ class Sharing(private val a: MainActivity) {
                     a.prefs.pending = p.copy(put = p.put - id)
                     a.sharedMarkers(a.markers.markers.map { if (it.id == id) it.copy(shared = false, updated = "", by = "") else it })
                     val why = try { JSONObject(r.body).optString("error") } catch (e: JSONException) { "" }
-                    a.toast("The box did not take the marker ${m.label.ifEmpty { "(no name)" }}: it stays on this device only." + if (why.isEmpty()) "" else " The box says: $why")
+                    a.toast("The box did not accept the marker ${m.label.ifEmpty { "(no name)" }}. The marker stays on this device only." + if (why.isEmpty()) "" else " The box says: $why")
                 }
                 else -> return trouble(r) ?: info.interval * 1000L
             }
@@ -281,30 +281,31 @@ class Sharing(private val a: MainActivity) {
     fun summary(): String {
         val mine = "My position: " + if (on) "on" else "off"
         return when {
-            a.prefs.server == null -> "Needs a box"
-            box == Box.NONE -> "This server has none"
-            box == Box.OFF -> "Switched off on the box"
-            !a.reachable -> "$mine · out of reach now"
+            a.prefs.server == null -> "No box"
+            box == Box.NONE -> "Not on this box"
+            box == Box.OFF -> "Off on the box"
+            !a.reachable -> "$mine · no connection"
             box == Box.UNKNOWN -> mine
-            else -> "$mine · " + others().size.let { n -> if (n == 0) "nobody else here" else if (n == 1) "1 other here" else "$n others here" }
+            else -> "$mine · " + others().size.let { n -> if (n == 0) "no other devices" else if (n == 1) "1 other device" else "$n other devices" }
         }
     }
 
     /** What sharing is and how it stands with this box. */
     fun about(): String = when {
-        a.prefs.server == null -> "Sharing goes through a fieldmap-server box. Connect to one first, under Menu, Server."
-        box == Box.NONE -> "This server has no sharing. A fieldmap-server box with sharing is needed."
-        box == Box.OFF -> "Sharing is switched off on the box. Switch it on on the box's Devices page."
-        !a.reachable -> "The box is out of reach now. Shared markers stay on this device, and changes to them are sent when the box answers again."
-        else -> "Devices that reach this box, at home or from outside, can show each other where they are and share markers."
+        a.prefs.server == null -> "Sharing uses a Fieldmap box. Connect to the box first in Menu › Box."
+        box == Box.NONE -> "This box does not have the sharing function."
+        box == Box.OFF -> "Sharing is off on the box. To switch it on, open the Devices page of the box."
+        !a.reachable -> "There is no connection to the box. Shared markers stay on this device. The app sends your changes when the connection comes back."
+        else -> "Devices that connect to this box can see the positions of the other devices. They can also share markers."
     }
 
     /** How it stands with this phone's own position, while sharing it is on. */
     fun mine(): String = when {
-        box == Box.NONE || box == Box.OFF || !a.reachable -> "On, but not sent now."
+        box == Box.NONE || box == Box.OFF -> "On. The box does not accept positions now."
+        !a.reachable -> "On. There is no connection to the box now."
         live -> "On. The others see you as ${a.prefs.shareName}."
-        a.fix() == null -> "On. Waiting for a position from GPS."
-        else -> "On. Sending…"
+        a.fix() == null -> "On. The app waits for a GPS position."
+        else -> "On. Your first position goes to the box now…"
     }
 
     private companion object {

@@ -221,7 +221,7 @@ class MainActivity : AppCompatActivity() {
         b.top.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutMap() }
 
         areas.onChange = ::areasChanged
-        areas.onSaved = { toast("Saved: ${it.name} (${bytesText(it.bytes)})") }
+        areas.onSaved = { toast("Map area saved: ${it.name} (${bytesText(it.bytes)})") }
         areas.load()
 
         followChanged()
@@ -288,22 +288,22 @@ class MainActivity : AppCompatActivity() {
     /** A style could not be loaded: show a saved area's style instead, or say what is missing. */
     private fun styleMissing(url: String) {
         if (pendingStyle != url) return
-        if (reachable) { pendingStyle = null; showStyle(null); notice("The server did not give this map style. Choose another under Menu, Map style."); return }
+        if (reachable) { pendingStyle = null; showStyle(null); notice("The box does not have this map style. Choose a different style in Menu › Map style."); return }
         missingStyles += url
         val centre = map?.cameraPosition?.target
         val saved = areas.list.filter { it.styleUrl !in missingStyles }
         val other = saved.firstOrNull { centre != null && it.bounds?.contains(centre) == true } ?: saved.firstOrNull()
         if (other != null) {
             val name = prefs.styles.firstOrNull { it.url == url }?.name ?: "This map style"
-            toast("$name is not saved on this device. Showing ${other.styleName.ifEmpty { "a saved map" }}.")
+            toast("$name is not on this device. The map shows ${other.styleName.ifEmpty { "a map area" }}.")
             showStyle(other.styleUrl)
             return
         }
         pendingStyle = null
         showStyle(null)
         notice(
-            if (areas.list.isEmpty()) "The server is out of reach and no map area is saved on this device yet.\n\nOn the server's network: Menu, Saved areas, Save a new area."
-            else "This map style is not saved on the device. Choose a saved area under Menu, Saved areas.",
+            if (areas.list.isEmpty()) "There is no connection to the box. This device has no map areas.\n\nOn the box's network, go to Menu › Map areas › Save a map area."
+            else "This map style is not on this device. Choose a map area in Menu › Map areas.",
         )
     }
 
@@ -548,11 +548,11 @@ class MainActivity : AppCompatActivity() {
                     val answer = TileServer.status("${base}styles.json", 6000, Route.REMOTE)
                     if (answer == 403 && base == prefs.server) {
                         removeRemote()
-                        toast("The box no longer lets this device in from outside. Pair it again on the box's network.")
+                        toast("The box removed this device. To use the box from outside, pair this device again on the box's network.")
                         break
                     }
                     if (answer == 401) {
-                        if (!remoteSwitchedOff) toast("Remote access is switched off on the box.")
+                        if (!remoteSwitchedOff) toast("Remote access is off on the box.")
                         remoteSwitchedOff = true
                         break
                     }
@@ -648,10 +648,10 @@ class MainActivity : AppCompatActivity() {
         showStyle()
         panels.show(Screen.NONE)
         val style = currentStyle()
-        if (style == null) { notice("This server has no map styles."); return }
+        if (style == null) { notice("This box has no map styles."); return }
         scope.launch {
             val info = TileServer.info(style.url) ?: return@launch
-            if (info.empty) notice("No maps on this server yet. Build them on its Map builder page.")
+            if (info.empty) notice("The box has no maps yet. Build the maps on the Map builder page of the box.")
             // A new server: start on the area its base map covers.
             val c = info.coverage
             if (first && c != null) b.root.post { layoutMap(); map?.moveCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.from(c.north, c.east, c.south, c.west), dp(24))) }
@@ -667,9 +667,9 @@ class MainActivity : AppCompatActivity() {
     private fun updateStatus() {
         val saving = areas.downloading
         val (text, colour) = when {
-            saving != null -> "Saving ${saving.percent}%" to R.color.amber
-            prefs.server == null -> "No server" to R.color.muted
-            remoteNow -> "Remote" to R.color.sig
+            saving != null -> "Download ${saving.percent}%" to R.color.amber
+            prefs.server == null -> "No box" to R.color.muted
+            remoteNow -> "Outside" to R.color.sig
             reachable -> "Connected" to R.color.sig
             else -> "Offline" to R.color.muted
         }
@@ -712,7 +712,7 @@ class MainActivity : AppCompatActivity() {
 
     internal fun saveArea(name: String, style: MapStyle, box: Box) {
         areas.save(name, style, LatLngBounds.from(box.north, box.east, box.south, box.west), resources.displayMetrics.density) {
-            toast("The area could not be saved: $it")
+            toast("The app did not save the map area. $it")
         }
         panels.show(Screen.AREAS)
     }
@@ -823,7 +823,7 @@ class MainActivity : AppCompatActivity() {
         val now = open?.let { markers.get(it.id) }
         if (open != null && now == null) {
             panels.back()
-            toast("${open.label.ifEmpty { "This marker" }} was deleted on another device.")
+            toast("Another device deleted ${open.label.ifEmpty { "this marker" }}.")
         } else if (open != null && now != open.copy(updated = now?.updated.orEmpty(), by = now?.by.orEmpty())) {
             panels.rebuild(Screen.MARKER)
         }
@@ -914,7 +914,7 @@ class MainActivity : AppCompatActivity() {
         val here = lastLocation() ?: return null
         val out = FloatArray(2)
         Location.distanceBetween(here.latitude, here.longitude, lat, lon, out)
-        if (out[0] < 5) return "Where you are"
+        if (out[0] < 5) return "At your position"
         val bearing = ((out[1] + 360) % 360).toInt()
         val far = if (imperial) {
             val miles = out[0] / 1609.344
@@ -929,9 +929,9 @@ class MainActivity : AppCompatActivity() {
         if (uri == null) return@registerForActivityResult
         try {
             contentResolver.openOutputStream(uri)?.use { it.write(markers.toGeoJson().toByteArray()) }
-            toast("Markers saved to the file.")
+            toast("The app saved the markers in the file.")
         } catch (e: Exception) {
-            toast("The file could not be written.")
+            toast("The app cannot write the file.")
         }
     }
 
@@ -944,14 +944,14 @@ class MainActivity : AppCompatActivity() {
             markersChanged()
             panels.refresh()
             toast(
-                "Added $added marker${if (added == 1) "" else "s"}." +
-                    (if (loaded.markers.size > added) " ${loaded.markers.size - added} were already here." else "") +
-                    (if (loaded.skipped > 0) " ${loaded.skipped} other drawing${if (loaded.skipped == 1) "" else "s"} (arrows, shapes) left out." else ""),
+                "The app added $added marker${if (added == 1) "" else "s"}." +
+                    (if (loaded.markers.size > added) " ${loaded.markers.size - added} were on this device already." else "") +
+                    (if (loaded.skipped > 0) " The app does not show ${loaded.skipped} other drawing${if (loaded.skipped == 1) "" else "s"}, for example arrows and shapes." else ""),
             )
         } catch (e: IllegalArgumentException) {
-            toast(e.message ?: "The file could not be read.")
+            toast(e.message ?: "The app cannot read the file.")
         } catch (e: Exception) {
-            toast("The file could not be read.")
+            toast("The app cannot read the file.")
         }
     }
 
@@ -970,7 +970,7 @@ class MainActivity : AppCompatActivity() {
             style?.let(::startLocation)
             if (then != null) then() else if (locationOn) setFollow(Follow.NORTH)
         } else {
-            toast(if (then != null) "Without the location permission your position cannot be shared." else "Without the location permission the map cannot show where you are.")
+            toast(if (then != null) "The app cannot share your position without the Location permission." else "The map cannot show your position without the Location permission.")
         }
     }
 
@@ -1068,7 +1068,7 @@ class MainActivity : AppCompatActivity() {
         val m = map ?: return
         val here = lastLocation()
         if (follow != Follow.FREE) {
-            if (here == null) { b.grid.text = "Waiting for GPS"; b.latlon.text = "No position yet"; return }
+            if (here == null) { b.grid.text = "No GPS position"; b.latlon.text = "The app waits for the GPS"; return }
             b.grid.text = Utm.toMgrs(here.latitude, here.longitude) ?: "Outside the MGRS grid"
             // Rounded up, never "±0": feet where the scale bar is in feet and miles.
             val accuracy = when {

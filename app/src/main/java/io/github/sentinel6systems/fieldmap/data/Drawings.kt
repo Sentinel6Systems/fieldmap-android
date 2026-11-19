@@ -57,13 +57,13 @@ object Drawings {
      */
     fun fromGeoJson(text: String, defaultColor: String, newId: () -> String): Loaded {
         val data = try { JSONObject(text) } catch (e: JSONException) {
-            throw IllegalArgumentException("This file is not a map drawing file (GeoJSON).")
+            throw IllegalArgumentException("This file is not a GeoJSON file.")
         }
         val features: List<JSONObject> = when (data.optString("type")) {
             "FeatureCollection" -> data.optJSONArray("features")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }
             "Feature" -> listOf(data)
             else -> if (data.has("coordinates")) listOf(JSONObject().put("type", "Feature").put("geometry", data)) else null
-        } ?: throw IllegalArgumentException("This file has no map features in it (it is not GeoJSON).")
+        } ?: throw IllegalArgumentException("This file has no map data. It is not a GeoJSON file.")
 
         val markers = ArrayList<Marker>()
         var skipped = 0
