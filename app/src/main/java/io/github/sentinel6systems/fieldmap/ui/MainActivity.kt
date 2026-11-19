@@ -162,7 +162,7 @@ class MainActivity : AppCompatActivity() {
     private var lastAreasDraw = 0L
     private var mapPadding = DoubleArray(4)         // left, top, right, bottom
     private var remoteChecked = 0L
-    /** The box's gateway said remote access is switched off (its Phones page). */
+    /** The box's gateway said remote access is switched off (on its pages: Admin, Remote access). */
     internal var remoteSwitchedOff = false
         private set
 
@@ -544,7 +544,7 @@ class MainActivity : AppCompatActivity() {
                     styles = TileServer.styles(base, 6000, Route.REMOTE)
                     if (styles != null) break
                     // The gateway answers 403 to a phone its owner removed on the box, and 401 to
-                    // everyone while remote access is switched off on the box's Phones page.
+                    // everyone while remote access is switched off on the box (Admin, Remote access).
                     val answer = TileServer.status("${base}styles.json", 6000, Route.REMOTE)
                     if (answer == 403 && base == prefs.server) {
                         removeRemote()

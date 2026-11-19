@@ -110,8 +110,8 @@ A fieldmap-server box lets devices that were paired on its own network use its m
 "Remote access for the Android app"). It is off until the box's owner switches it on. At home, on the box's
 network:
 
-1. On the box's **Devices** page (a tab in the header of its Maps page), press **Switch on**, or, if it is already
-   on, **Pair a device**. Either opens pairing for ten minutes.
+1. On the box's pages, open **Admin**, **Remote access** and press **Switch on**. If it is on already, open
+   **Devices** and press **Pair a device**. Either opens pairing for ten minutes.
 2. In the app: **Menu › Server › Pair this device**.
 
 That is all. Away from the box's network the strip at the top reads **Remote** instead of **Connected**, and the
@@ -124,8 +124,9 @@ box's own certificate there. Whenever the device is home again it picks up any n
 device's make and model, so that its owner can tell the devices on its list apart.
 
 On the box's Devices page its owner can remove a device (the app then says so the next time it tries from outside,
-and it can be paired again at home), or switch remote access off altogether (the app says so, and stays paired
-for when it is switched on again). **Unpair this device** in the app forgets the pairing on the device.
+and it can be paired again at home). Under Admin, Remote access, the owner can switch remote access off
+altogether (the app says so, and stays paired for when it is switched on again). **Unpair this device** in the app
+forgets the pairing on the device.
 
 Whether the box can be reached from outside depends on its router and internet provider; the Server panel shows
 what the box says about it. This is not a system VPN: nothing else on the device uses it, no VPN icon appears, and
