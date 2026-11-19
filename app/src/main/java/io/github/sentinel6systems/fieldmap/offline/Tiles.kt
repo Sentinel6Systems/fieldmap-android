@@ -30,14 +30,13 @@ data class TileRange(val z: Int, val x0: Int, val y0: Int, val x1: Int, val y1: 
 /** Which tiles an offline area needs, counted the way MapLibre counts them when it downloads. */
 object Tiles {
     /**
-     * Every saved area goes from the whole world down to a zoom the person chooses. MAX_ZOOM is
-     * the deepest vector zoom: the box's styles draw their closest layers from it. Below it only
-     * picture tiles go deeper (the box's 1 m hillshade, in its own small area).
+     * Every saved area goes from the whole world down to a zoom the person chooses, at most
+     * MAX_ZOOM: the deepest vector zoom. The box's styles draw their closest layers from it.
      */
     const val MIN_ZOOM = 0
     const val MAX_ZOOM = 14
     /** The choices of the deepest zoom of an area. */
-    val DEPTHS = 12..16
+    val DEPTHS = 11..MAX_ZOOM
 
     fun x(lon: Double, z: Int): Int = floor((lon + 180) / 360 * (1 shl z)).toInt().coerceIn(0, (1 shl z) - 1)
 

@@ -275,7 +275,7 @@ class Panels(private val a: MainActivity) {
                 depths += this
             }, LinearLayout.LayoutParams(0, a.dp(52), 1f).apply { if (childCount > 0) marginStart = a.dp(6) })
         })
-        add(a.body("Zoom 14 has all the map features. Zoom 15 and 16 add only the 1 m hillshade, where the box has it. A lower zoom has fewer tiles and less detail.", muted = true, top = 8))
+        add(a.body("Zoom 14 has all the map features. A lower zoom has fewer tiles and less detail.", muted = true, top = 8))
         estimateText = a.mono("", 15f, muted = false).apply { layoutParams = lp(top = a.dp(14)); minLines = 2 }.also(::add)
         val download = a.button("Download", Kind.PRIMARY) { download() }
         downloadButton = download

@@ -86,9 +86,8 @@ Without `-Pfieldmap.signing` the release build is left unsigned.
 5. Go to **Menu › Map areas › Save a map area**.
 6. Move and zoom the map until the area is in the frame.
 7. Give the map area a name.
-8. Under **Most detail (zoom)**, choose a zoom from 12 to 16. Zoom 14 has all the map features. Zoom 15 and 16
-   add only the 1 m hillshade, where the box has it. Each zoom less than 14 has about a quarter of the tiles. The
-   app keeps your choice for the next map area.
+8. Under **Most detail (zoom)**, choose a zoom from 11 to 14. Zoom 14 has all the map features. Each zoom less
+   has about a quarter of the tiles. The app keeps your choice for the next map area.
 9. Read the number of tiles and the size, and press **Download**.
 10. Keep the app open until the download is complete. The top of the screen shows the progress (42%), and a
     bar under it shows the progress too. The screen stays on during the download.
@@ -219,13 +218,12 @@ shows only markers.
 
 ## Map areas: how they work, and their limits
 
-- A map area has all zoom levels from the whole world down to the zoom that you choose (12 to 16). Zoom 14 is the
+- A map area has all zoom levels from the whole world down to the zoom that you choose (11 to 14). Zoom 14 is the
   deepest level of the vector tiles of the box. The styles show some layers only closer in (zoom 15 to 18), but
-  they draw them from the zoom 14 tiles. Thus zoom 14 has all the map features. At zoom 12 or 13, the map shows
-  less detail when you zoom in past the chosen zoom.
-- Zoom 15 and 16 add only picture tiles that go deeper than zoom 14: the 1 m hillshade of fieldmap-server
-  (`hillshade-detail`). The box has it only in a small area. The app counts and downloads these tiles only in
-  that area.
+  they draw them from the zoom 14 tiles. Thus zoom 14 has all the map features. At zoom 11, 12 or 13, the map
+  shows less detail when you zoom in past the chosen zoom.
+- The app saves hillshade as deep as the box has it, to a maximum of the chosen zoom. The app does not save the
+  1 m hillshade above zoom 14 (`hillshade-detail` of fieldmap-server).
 - The size before a download is an estimate. The app counts the tiles and measures some of them on the box.
   Towns have more data than empty land, so the real size is a little different.
 - The app does not start a download that leaves less than 500 MB free on the device. It also does not start a
