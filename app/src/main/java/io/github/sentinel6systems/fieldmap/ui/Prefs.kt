@@ -3,6 +3,7 @@ package io.github.sentinel6systems.fieldmap.ui
 import android.content.Context
 import androidx.core.content.edit
 import io.github.sentinel6systems.fieldmap.data.Palette
+import io.github.sentinel6systems.fieldmap.offline.Tiles
 import io.github.sentinel6systems.fieldmap.remote.Enrolment
 import io.github.sentinel6systems.fieldmap.remote.endpointsFrom
 import io.github.sentinel6systems.fieldmap.remote.endpointsTo
@@ -35,6 +36,11 @@ class Prefs(context: Context) {
     var color: String
         get() = p.getString("color", Palette.DEFAULT) ?: Palette.DEFAULT
         set(v) = p.edit { putString("color", v) }
+
+    /** The deepest zoom of the next map area: the last one chosen. */
+    var areaZoom: Int
+        get() = p.getInt("areaZoom", Tiles.MAX_ZOOM).coerceIn(Tiles.DEPTHS)
+        set(v) = p.edit { putInt("areaZoom", v) }
 
     /** Where the map was: latitude, longitude, zoom. */
     var camera: Triple<Double, Double, Double>?

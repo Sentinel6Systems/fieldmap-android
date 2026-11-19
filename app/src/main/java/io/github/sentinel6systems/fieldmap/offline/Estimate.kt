@@ -17,10 +17,10 @@ object Estimate {
      * else a grid of them over the area) and multiplies by the number of tiles. Town centres
      * and empty country differ a lot, so this is "about", not exact.
      */
-    suspend fun bytes(sources: List<TileSource>, box: Box): Long = coroutineScope {
+    suspend fun bytes(sources: List<TileSource>, box: Box, max: Int = Tiles.MAX_ZOOM): Long = coroutineScope {
         val gate = Semaphore(6)
         sources.flatMap { source ->
-            Tiles.ranges(source, box).map { range ->
+            Tiles.ranges(source, box, max).map { range ->
                 async {
                     val sizes = Tiles.samples(range, SAMPLES).map { (x, y) -> gate.withPermit { TileServer.size(Tiles.url(source, range.z, x, y)) } }
                     (sizes.average() * range.count).toLong()

@@ -470,6 +470,7 @@ class MainActivity : AppCompatActivity() {
         val dx = -right / 2f
         val dy = (top - bottom) / 2f
         b.notice.translationX = dx
+        b.progress.translationY = top.toFloat()
         b.toast.translationY = top + dp(10).toFloat()
         b.toast.translationX = dx
         // The zoom buttons stay on the map beside or above an open panel, when there is room.
@@ -665,7 +666,8 @@ class MainActivity : AppCompatActivity() {
     private fun updateStatus() {
         val saving = areas.downloading
         val (text, colour) = when {
-            saving != null -> "Download ${saving.percent}%" to R.color.amber
+            // Short: a wide tag cuts the grid reference beside it. The bar under the strip says "download".
+            saving != null -> "${saving.percent}%" to R.color.amber
             prefs.server == null -> "No box" to R.color.muted
             remoteNow -> "Outside" to R.color.sig
             reachable -> "Connected" to R.color.sig
@@ -673,6 +675,9 @@ class MainActivity : AppCompatActivity() {
         }
         b.status.text = text
         b.status.setTextColor(color(colour))
+        // A download also shows as a bar under the strip, whatever the panel shows.
+        b.progress.visibility = if (saving != null) View.VISIBLE else View.GONE
+        if (saving != null) b.progress.progress = saving.percent
         // While this phone's position is shared, the strip says so: amber while it is getting
         // through, grey while it is not (out of reach, no position yet).
         b.sharing.visibility = if (sharing.on) View.VISIBLE else View.GONE
@@ -708,8 +713,8 @@ class MainActivity : AppCompatActivity() {
         panels.show(Screen.SAVE)
     }
 
-    internal fun saveArea(name: String, style: MapStyle, box: Box) {
-        areas.save(name, style, LatLngBounds.from(box.north, box.east, box.south, box.west), resources.displayMetrics.density) {
+    internal fun saveArea(name: String, style: MapStyle, box: Box, maxZoom: Int) {
+        areas.save(name, style, LatLngBounds.from(box.north, box.east, box.south, box.west), maxZoom, resources.displayMetrics.density) {
             toast("The app did not save the map area. $it")
         }
         panels.show(Screen.AREAS)

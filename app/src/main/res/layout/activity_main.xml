@@ -98,6 +98,19 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- The progress of a map area download, on the lower edge of the strip. -->
+    <ProgressBar
+        android:id="@+id/progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="6dp"
+        android:layout_gravity="top"
+        android:indeterminate="false"
+        android:max="100"
+        android:progressBackgroundTint="@color/line"
+        android:progressTint="@color/amber"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/notice"
         android:layout_width="wrap_content"

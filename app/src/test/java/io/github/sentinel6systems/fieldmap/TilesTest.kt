@@ -46,6 +46,33 @@ class TilesTest {
     }
 
     @Test
+    fun `a lower deepest zoom stops each source there`() {
+        assertEquals(0..12, Tiles.zooms(base, max = 12))
+        assertEquals(8..10, Tiles.zooms(contours, max = 10))
+        assertTrue(Tiles.zooms(contours, max = 7).isEmpty())
+        assertEquals(1..13, Tiles.zooms(shade.copy(tileSize = 256, minZoom = 0, maxZoom = 18), max = 12))
+        // Each zoom less has about a quarter of the tiles of the deepest level.
+        val box = Box(10.0, 10.0, 11.0, 11.0)
+        val full = Tiles.count(listOf(base), box)
+        val less = Tiles.count(listOf(base), box, 13)
+        assertEquals(Tiles.ranges(base, box).dropLast(1).sumOf { it.count }, less)
+        assertTrue("$less -> $full", full in less * 3..less * 6)
+    }
+
+    @Test
+    fun `a source counts only where it has tiles`() {
+        // A small area of detailed hillshade to zoom 17, inside a larger area to save.
+        val detail = TileSource("hillshade-detail", raster = true, tileSize = 512, minZoom = 15, maxZoom = 17, template = "", bounds = Box(10.0, 10.0, 10.1, 10.1))
+        val box = Box(10.0, 10.0, 11.0, 11.0)
+        assertTrue(Tiles.ranges(detail, box, 14).isEmpty())
+        assertEquals(listOf(15, 16), Tiles.ranges(detail, box, 16).map { it.z })
+        assertEquals(Tiles.ranges(detail, Box(10.0, 10.0, 10.1, 10.1), 16), Tiles.ranges(detail, box, 16))
+        // The vector tiles stop at 14: zoom 16 adds nothing to them.
+        assertEquals(Tiles.count(listOf(base), box), Tiles.count(listOf(base), box, 16))
+        assertTrue(Tiles.ranges(detail, Box(20.0, 20.0, 21.0, 21.0), 16).isEmpty())
+    }
+
+    @Test
     fun `four times the area is about four times the tiles`() {
         val small = Tiles.count(listOf(base), Box(10.0, 10.0, 10.5, 10.5))
         val large = Tiles.count(listOf(base), Box(10.0, 10.0, 11.0, 11.0))

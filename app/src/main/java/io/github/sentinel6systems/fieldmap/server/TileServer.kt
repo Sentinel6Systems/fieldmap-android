@@ -67,7 +67,8 @@ object TileServer {
                 val json = if (s.has("url")) JSONObject(get(s.getString("url"), 6000) ?: return@withContext null) else s
                 val tiles = json.optJSONArray("tiles")?.optString(0).orEmpty()
                 if (tiles.isEmpty()) continue
-                out += TileSource(id, type != "vector", s.optInt("tileSize", 512), json.optInt("minzoom", 0), json.optInt("maxzoom", 22), tiles)
+                val edges = json.optJSONArray("bounds")?.takeIf { it.length() == 4 }?.let { Box(it.getDouble(0), it.getDouble(1), it.getDouble(2), it.getDouble(3)) }
+                out += TileSource(id, type != "vector", s.optInt("tileSize", 512), json.optInt("minzoom", 0), json.optInt("maxzoom", 22), tiles, edges)
                 if (type == "vector" && coverage == null && !empty) {
                     // A new fieldmap-server install has empty placeholder files.
                     if (json.optString("name") == "empty placeholder") empty = true

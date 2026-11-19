@@ -223,7 +223,7 @@ class Panels(private val a: MainActivity) {
         val detail = when {
             area.downloading -> "Download ${area.percent}% · ${bytesText(area.bytes)}" + if (area.waiting) " · no connection to the box" else ""
             !area.complete -> "Not complete · ${bytesText(area.bytes)}"
-            else -> "${area.styleName} · ${bytesText(area.bytes)} · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(area.created))}"
+            else -> "${area.styleName} · zoom ${area.maxZoom} · ${bytesText(area.bytes)} · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(area.created))}"
         }
         addView(a.row(area.name, detail) { a.showArea(area) })
         if (area.downloading) addView(LinearLayout(a).apply {
@@ -260,6 +260,22 @@ class Panels(private val a: MainActivity) {
         val used = a.areas.list.map { it.name }.toSet()
         val name = generateSequence(a.areas.list.size + 1) { it + 1 }.map { "Area $it" }.first { it !in used }
         areaName = a.field("Name", name, max = Drawings.MAX_LABEL) { hideKeyboard() }.also(::add)
+        add(a.label("Most detail (zoom)"))
+        val depths = ArrayList<View>()
+        add(LinearLayout(a).apply {
+            for (z in Tiles.DEPTHS) addView(TextView(a).apply {
+                text = z.toString()
+                textSize = 18f
+                gravity = Gravity.CENTER
+                setTextColor(a.color(R.color.ink))
+                setBackgroundResource(R.drawable.bg_control)
+                contentDescription = "Zoom $z"
+                isSelected = z == a.prefs.areaZoom
+                setOnClickListener { hideKeyboard(); a.prefs.areaZoom = z; depths.forEach { it.isSelected = it === this }; estimate() }
+                depths += this
+            }, LinearLayout.LayoutParams(0, a.dp(52), 1f).apply { if (childCount > 0) marginStart = a.dp(6) })
+        })
+        add(a.body("Zoom 14 has all the map features. Zoom 15 and 16 add only the 1 m hillshade, where the box has it. A lower zoom has fewer tiles and less detail.", muted = true, top = 8))
         estimateText = a.mono("", 15f, muted = false).apply { layoutParams = lp(top = a.dp(14)); minLines = 2 }.also(::add)
         val download = a.button("Download", Kind.PRIMARY) { download() }
         downloadButton = download
@@ -284,10 +300,11 @@ class Panels(private val a: MainActivity) {
             delay(350)
             val list = sources.of(style.url) ?: return@launch say("The box did not answer.", R.color.warn)
             val box = a.frameBox() ?: return@launch say("This area is too large. Zoom in.", R.color.warn)
-            val tiles = Tiles.count(list, box)
-            if (tiles > Areas.MAX_TILES) return@launch say("This area has too many tiles: ${number(tiles)}. Zoom in. Save the area as two or more map areas.", R.color.warn)
+            val depth = a.prefs.areaZoom
+            val tiles = Tiles.count(list, box, depth)
+            if (tiles > Areas.MAX_TILES) return@launch say("This area has too many tiles: ${number(tiles)}. Choose a lower zoom, or save the area as two or more map areas.", R.color.warn)
             say("${number(tiles)} tiles. The app calculates the size…")
-            val bytes = Estimate.bytes(list, box)
+            val bytes = Estimate.bytes(list, box, depth)
             val free = a.filesDir.usableSpace
             val line = "Size: about ${bytesText(bytes)} · ${number(tiles)} tiles\nFree space on this device: ${bytesText(free)}"
             when {
@@ -302,7 +319,7 @@ class Panels(private val a: MainActivity) {
         val style = a.currentStyle() ?: return
         val box = a.frameBox() ?: return
         val name = areaName?.text?.toString()?.trim().orEmpty().ifEmpty { "Area" }
-        a.saveArea(name, style, box)
+        a.saveArea(name, style, box, a.prefs.areaZoom)
     }
 
     /* ---------- markers ---------- */

@@ -17,6 +17,8 @@ class SavedArea(val region: OfflineRegion, val name: String, val styleId: String
     private val definition = region.definition as OfflineTilePyramidRegionDefinition
     val styleUrl: String get() = definition.styleURL.orEmpty()
     val bounds: LatLngBounds? get() = definition.bounds
+    /** The deepest zoom of the area. */
+    val maxZoom: Int get() = definition.maxZoom.toInt()
 
     var files = 0L          // downloaded so far
     var filesNeeded = 0L
@@ -30,7 +32,7 @@ class SavedArea(val region: OfflineRegion, val name: String, val styleId: String
 
     /** Everything needed to make this area again. */
     fun toJson(): JSONObject = JSONObject().put("name", name).put("styleId", styleId).put("styleName", styleName).put("created", created)
-        .put("styleUrl", styleUrl).put("pixelRatio", definition.pixelRatio.toDouble())
+        .put("styleUrl", styleUrl).put("pixelRatio", definition.pixelRatio.toDouble()).put("maxZoom", maxZoom)
         .put("north", bounds?.latitudeNorth).put("east", bounds?.longitudeEast).put("south", bounds?.latitudeSouth).put("west", bounds?.longitudeWest)
 }
 
@@ -85,13 +87,13 @@ class Areas(context: Context) {
     }
 
     /** Starts saving an area of a style. `failed` gets a plain message if it cannot start. */
-    fun save(name: String, style: MapStyle, bounds: LatLngBounds, pixelRatio: Float, failed: (String) -> Unit) {
+    fun save(name: String, style: MapStyle, bounds: LatLngBounds, maxZoom: Int, pixelRatio: Float, failed: (String) -> Unit) {
         val meta = JSONObject().put("name", name).put("styleId", style.id).put("styleName", style.name).put("created", System.currentTimeMillis())
-        create(style.url, bounds, pixelRatio, meta, failed)
+        create(style.url, bounds, maxZoom, pixelRatio, meta, failed)
     }
 
-    private fun create(styleUrl: String, bounds: LatLngBounds, pixelRatio: Float, meta: JSONObject, failed: (String) -> Unit = {}, done: () -> Unit = {}) {
-        val definition = OfflineTilePyramidRegionDefinition(styleUrl, bounds, Tiles.MIN_ZOOM.toDouble(), Tiles.MAX_ZOOM.toDouble(), pixelRatio)
+    private fun create(styleUrl: String, bounds: LatLngBounds, maxZoom: Int, pixelRatio: Float, meta: JSONObject, failed: (String) -> Unit = {}, done: () -> Unit = {}) {
+        val definition = OfflineTilePyramidRegionDefinition(styleUrl, bounds, Tiles.MIN_ZOOM.toDouble(), maxZoom.toDouble(), pixelRatio)
         manager.createOfflineRegion(definition, meta.toString().toByteArray(), object : OfflineManager.CreateOfflineRegionCallback {
             override fun onCreate(offlineRegion: OfflineRegion) {
                 read(offlineRegion)?.let { area ->
@@ -150,7 +152,7 @@ class Areas(context: Context) {
         for (e in missing) {
             val bounds = LatLngBounds.from(e.getDouble("north"), e.getDouble("east"), e.getDouble("south"), e.getDouble("west"))
             val meta = JSONObject().put("name", e.optString("name")).put("styleId", e.optString("styleId")).put("styleName", e.optString("styleName")).put("created", e.optLong("created"))
-            create(e.getString("styleUrl"), bounds, e.optDouble("pixelRatio", 1.0).toFloat(), meta) { if (--left == 0) waiting.delete() }
+            create(e.getString("styleUrl"), bounds, e.optInt("maxZoom", Tiles.MAX_ZOOM), e.optDouble("pixelRatio", 1.0).toFloat(), meta) { if (--left == 0) waiting.delete() }
         }
     }
 

@@ -18,6 +18,8 @@ data class TileSource(
     val maxZoom: Int,
     /** Tile address with {z}, {x} and {y}. */
     val template: String,
+    /** Where the source has tiles; null for everywhere. */
+    val bounds: Box? = null,
 )
 
 /** The tiles of one zoom level that touch a box: columns x0..x1, rows y0..y1. */
@@ -27,9 +29,15 @@ data class TileRange(val z: Int, val x0: Int, val y0: Int, val x1: Int, val y1: 
 
 /** Which tiles an offline area needs, counted the way MapLibre counts them when it downloads. */
 object Tiles {
-    /** Every saved area goes from the whole world down to this zoom (the deepest vector zoom). */
+    /**
+     * Every saved area goes from the whole world down to a zoom the person chooses. MAX_ZOOM is
+     * the deepest vector zoom: the box's styles draw their closest layers from it. Below it only
+     * picture tiles go deeper (the box's 1 m hillshade, in its own small area).
+     */
     const val MIN_ZOOM = 0
     const val MAX_ZOOM = 14
+    /** The choices of the deepest zoom of an area. */
+    val DEPTHS = 12..16
 
     fun x(lon: Double, z: Int): Int = floor((lon + 180) / 360 * (1 shl z)).toInt().coerceIn(0, (1 shl z) - 1)
 
@@ -49,9 +57,15 @@ object Tiles {
         return maxOf(min + shift, source.minZoom)..minOf(max + shift, source.maxZoom)
     }
 
-    fun ranges(source: TileSource, box: Box): List<TileRange> = zooms(source).map { range(box, it) }
+    /** The ranges of a source in an area: none outside the part of the world that the source covers. */
+    fun ranges(source: TileSource, box: Box, max: Int = MAX_ZOOM): List<TileRange> {
+        val b = source.bounds
+        val part = if (b == null) box else Box(maxOf(box.west, b.west), maxOf(box.south, b.south), minOf(box.east, b.east), minOf(box.north, b.north))
+        if (part.west >= part.east || part.south >= part.north) return emptyList()
+        return zooms(source, max = max).map { range(part, it) }
+    }
 
-    fun count(sources: List<TileSource>, box: Box): Long = sources.sumOf { s -> ranges(s, box).sumOf { it.count } }
+    fun count(sources: List<TileSource>, box: Box, max: Int = MAX_ZOOM): Long = sources.sumOf { s -> ranges(s, box, max).sumOf { it.count } }
 
     /**
      * The tiles of a range to measure: all of them when there are no more than `most`, else
