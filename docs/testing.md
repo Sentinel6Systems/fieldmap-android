@@ -94,8 +94,15 @@ container and an own NetBird server (v0.83.1) on the same computer:
   got the block on the local network and connected from outside again
 - a device removed on the server: the app dropped the pairing, the setup key and its NetBird key
 
-Not tested yet for NetBird: NetBird's cloud service (the test used an own server), a real Starlink connection,
-a real device (the battery, a night in the pocket, the battery savers of device makers, a 32-bit device), a
+It was then checked by hand on a real Android device against a real fieldmap-server that uses NetBird's cloud
+service:
+
+- with the device on a different Wi-Fi network, away from the server's local network: **Connected** through
+  NetBird, and the server's maps loaded
+- offline areas downloaded from the server; with no network at all, the map kept drawing them
+
+Not tested yet for NetBird: a real Starlink connection,
+a long time on a real device (the battery, a night in the pocket, the battery savers of device makers), a 32-bit device, a
 connection through the relay over a real distance, a new setup key on the server, and a server that gets a new address
 in the NetBird network.
 
