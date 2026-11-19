@@ -5,6 +5,8 @@ import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.MarkerStore
 import io.github.sentinel6systems.fieldmap.share.Ageing
 import io.github.sentinel6systems.fieldmap.share.Fix
+import io.github.sentinel6systems.fieldmap.share.Mover
+import io.github.sentinel6systems.fieldmap.share.Pace
 import io.github.sentinel6systems.fieldmap.share.Peer
 import io.github.sentinel6systems.fieldmap.share.Pending
 import io.github.sentinel6systems.fieldmap.share.ShareClient
@@ -260,26 +262,120 @@ class ShareTest {
     @Test
     fun `a position is live, then old, then gone`() {
         // The box's own numbers: a post every 5 s, dropped after 120 s.
-        assertEquals(20, Ageing.freshFor(5, 120))
+        assertEquals(30, Ageing.freshFor(5, 120))
         assertEquals(Ageing.Look.FRESH, Ageing.look(0, 5, 120))
-        assertEquals(Ageing.Look.FRESH, Ageing.look(19, 5, 120))
-        assertEquals(Ageing.Look.OLD, Ageing.look(20, 5, 120))
+        assertEquals(Ageing.Look.FRESH, Ageing.look(29, 5, 120))
+        assertEquals(Ageing.Look.OLD, Ageing.look(30, 5, 120))
         assertEquals(Ageing.Look.OLD, Ageing.look(119, 5, 120))
         assertEquals(Ageing.Look.GONE, Ageing.look(120, 5, 120))
-        // A slow pace: live for four posts, but never for more than half the way to being dropped.
-        assertEquals(120, Ageing.freshFor(30, 600))
+        // A slow pace: live for six posts, but never for more than half the way to being dropped.
+        assertEquals(180, Ageing.freshFor(30, 600))
         assertEquals(30, Ageing.freshFor(30, 60))
+    }
+
+    @Test
+    fun `a phone that said it stays where it is is not old for sending seldom`() {
+        assertEquals(90, Ageing.freshFor(5, 120, still = true))
+        assertEquals(Ageing.Look.FRESH, Ageing.look(70, 5, 120, still = true))
+        assertEquals(Ageing.Look.OLD, Ageing.look(70, 5, 120))
+        assertEquals(Ageing.Look.OLD, Ageing.look(95, 5, 120, still = true))
+        // Staying or not, the box's limit is the limit.
+        assertEquals(Ageing.Look.GONE, Ageing.look(120, 5, 120, still = true))
+        // What a phone says about itself: no speed is no claim, a crawl is not staying.
+        assertTrue(Peer("phone-aaaa", "A", 1.0, 2.0, speed = 0.0).still)
+        assertFalse(Peer("phone-aaaa", "A", 1.0, 2.0).still)
+        assertFalse(Peer("phone-aaaa", "A", 1.0, 2.0, speed = 0.8).still)
     }
 
     @Test
     fun `an old position fades steadily until it is dropped`() {
         assertEquals(1f, Ageing.opacity(10, 5, 120), 0f)
-        assertEquals(0.85f, Ageing.opacity(20, 5, 120), 0.001f)
-        assertEquals(0.625f, Ageing.opacity(70, 5, 120), 0.001f)
+        assertEquals(0.85f, Ageing.opacity(30, 5, 120), 0.001f)
+        assertEquals(0.625f, Ageing.opacity(75, 5, 120), 0.001f)
         assertEquals(0f, Ageing.opacity(120, 5, 120), 0f)
-        val steps = (20..119).map { Ageing.opacity(it, 5, 120) }
+        val steps = (30..119).map { Ageing.opacity(it, 5, 120) }
         assertEquals(steps.sortedDescending(), steps)
         assertTrue(steps.last() > 0.4f)
+        assertEquals(1f, Ageing.opacity(80, 5, 120, still = true), 0f)
+    }
+
+    /* ---------- in the background ---------- */
+
+    @Test
+    fun `in the background a phone sends seldom, and seldomer at rest, yet always in time`() {
+        val box = ShareInfo(true, 5, 120)
+        assertEquals(20, Pace.moving(box))
+        assertEquals(60, Pace.still(box))
+        // On the move a position is still live on the others' maps when the next one is due,
+        // even one poll late; at rest two are sent before the box would drop the phone.
+        assertTrue(Pace.moving(box) + box.interval < Ageing.freshFor(box.interval, box.stale))
+        assertTrue(Pace.still(box) + box.interval < Ageing.freshFor(box.interval, box.stale, still = true))
+        assertTrue(2 * Pace.still(box) <= box.stale)
+        // Other boxes, other numbers: the same holds.
+        for (other in listOf(ShareInfo(true, 2, 30), ShareInfo(true, 10, 300), ShareInfo(true, 30, 600), ShareInfo(true, 2, 4), ShareInfo(true, 60, 120))) {
+            assertTrue("$other", Pace.moving(other) >= 15)
+            assertTrue("$other", Pace.still(other) >= Pace.moving(other))
+        }
+        assertEquals(15, Pace.moving(ShareInfo(true, 2, 30)))
+        assertEquals(40, Pace.moving(ShareInfo(true, 10, 300)))
+        assertEquals(150, Pace.still(ShareInfo(true, 10, 300)))
+    }
+
+    @Test
+    fun `a phone counts as staying after three positions in one place, and as moving at once`() {
+        val m = Mover()
+        assertFalse(m.still)
+        assertFalse(m.take(45.0, 7.0, 5.0, 0.0))                // the first position: where it rests
+        assertFalse(m.take(45.00001, 7.0, 5.0, 0.0))            // a metre of drift
+        assertFalse(m.take(45.0, 7.00001, 5.0, null))
+        assertTrue(m.take(45.00002, 7.0, 5.0, 0.1))             // the third without movement
+        assertTrue(m.still)
+        assertFalse(m.take(45.0001, 7.0, 5.0, 0.0))             // 11 m: still within what counts as one place
+        assertTrue(m.still)
+        assertTrue(m.take(45.0005, 7.0, 5.0, 0.0))              // 55 m away: on the move
+        assertFalse(m.still)
+        // It must rest again, at the new place, to count as staying.
+        assertFalse(m.take(45.0005, 7.0, 5.0, 0.0))
+        assertFalse(m.take(45.0005, 7.0, 5.0, 0.0))
+        assertTrue(m.take(45.0005, 7.0, 5.0, 0.0))
+        assertTrue(m.still)
+    }
+
+    @Test
+    fun `speed says moving only when the position is good enough to say so`() {
+        val walking = Mover()
+        repeat(6) { walking.take(45.0 + it * 0.00005, 7.0, 5.0, 1.4) }      // 5.5 m a step, at a walk
+        assertFalse(walking.still)
+
+        val indoors = Mover()
+        // A rough position that wanders and claims a speed: it stays within its own doubt.
+        indoors.take(45.0, 7.0, 80.0, 2.0)
+        indoors.take(45.0005, 7.0, 80.0, 2.0)
+        indoors.take(45.0, 7.0005, 80.0, 2.0)
+        indoors.take(45.0003, 7.0, 80.0, 2.0)
+        assertTrue(indoors.still)
+    }
+
+    @Test
+    fun `the motion sensor ends the rest at once`() {
+        val m = Mover()
+        repeat(4) { m.take(45.0, 7.0, 5.0, 0.0) }
+        assertTrue(m.still)
+        assertTrue(m.nudge())
+        assertFalse(m.still)
+        assertFalse(m.nudge())                                  // nothing changed the second time
+        // A false alarm: three positions at the same place later it rests again.
+        m.take(45.0, 7.0, 5.0, 0.0)
+        m.take(45.0, 7.0, 5.0, 0.0)
+        assertTrue(m.take(45.0, 7.0, 5.0, 0.0))
+    }
+
+    @Test
+    fun `distances are right to well within what matters here`() {
+        assertEquals(111_195.0, Mover.metres(0.0, 0.0, 1.0, 0.0), 10.0)
+        assertEquals(78_626.0, Mover.metres(45.0, 0.0, 45.0, 1.0), 10.0)
+        assertEquals(0.0, Mover.metres(45.0, 7.0, 45.0, 7.0), 0.0)
+        assertEquals(11.1, Mover.metres(45.0, 7.0, 45.0001, 7.0), 0.1)
     }
 
     @Test

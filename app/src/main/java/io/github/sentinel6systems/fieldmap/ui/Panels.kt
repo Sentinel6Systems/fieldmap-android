@@ -173,6 +173,9 @@ class Panels(private val a: MainActivity) {
         add(a.row("Markers", if (a.markers.markers.isEmpty()) "None yet" else "${a.markers.markers.size}") { show(Screen.MARKERS) })
         add(a.row("Sharing", a.sharing.summary()) { show(Screen.SHARING) })
         add(a.row("Server", a.prefs.server?.let { ServerAddress.short(it) + if (a.reachable) " · connected" else " · out of reach" } ?: "Not set") { show(Screen.SERVER) })
+        // The one way to end a shared position for good, besides swiping the app away.
+        add(a.button("Close Fieldmap") { a.quit() }.apply { layoutParams = lp(top = a.dp(16)) })
+        if (a.sharing.on) add(a.body("Closing stops sharing your position. Leaving the app does not: it goes on in the background.", muted = true, top = 8))
         add(a.mono("Fieldmap ${BuildConfig.VERSION_NAME}", 12f).apply { layoutParams = lp(top = a.dp(14)) })
     }
 
@@ -392,14 +395,14 @@ class Panels(private val a: MainActivity) {
         val name = a.field("Your name on the map", a.prefs.shareName, max = ShareJson.MAX_NAME) { hideKeyboard() }
         if (s.on) {
             shareMine = a.body(s.mine()).also(::add)
-            add(a.body("It is sent while this app is open on the screen. When the app is closed, or the screen goes off, the others see your last position grow old and go.", muted = true, top = 8))
+            add(a.body("It goes on when you leave the app or the screen goes off, less often while you stay in one place, to save the battery. It stops when you close the app: Menu, Close Fieldmap, or swipe it away.", muted = true, top = 8))
             add(a.label("Name"))
             name.doAfterTextChanged { text -> ShareJson.name(text?.toString().orEmpty()).ifEmpty { null }?.let { a.prefs.shareName = it } }
             add(name)
             add(a.button("Stop sharing my position", Kind.DANGER) { a.sharing.switchOff(); rebuild(Screen.SHARING) }.apply { layoutParams = lp(top = a.dp(12)) })
         } else {
             shareMine = null
-            add(a.body("Off. Switched on, everyone who reaches this box sees where you are, under the name you give here, while this app is open on the screen."))
+            add(a.body("Off. Switched on, everyone who reaches this box sees where you are, under the name you give here, until you stop it or close the app. It goes on when you leave the app or the screen goes off."))
             add(a.label("Name"))
             add(name)
             val go = a.button("Share my position", Kind.PRIMARY) { a.startSharing(name.text.toString()) }
@@ -456,7 +459,7 @@ class Panels(private val a: MainActivity) {
         val p = peerShown ?: return
         peerWhen?.text = when {
             now == null -> "No longer shared. This is where ${p.name} was last."
-            Ageing.look(p.age, info.interval, info.stale) == Ageing.Look.FRESH -> "Updated ${Ageing.text(p.age)}."
+            Ageing.look(p.age, info.interval, info.stale, p.still) == Ageing.Look.FRESH -> "Updated ${Ageing.text(p.age)}." + if (p.still && p.age >= 30) " Staying in one place." else ""
             else -> "Last updated ${Ageing.text(p.age)}. ${p.name} may have moved since."
         }
         peerGrid?.text = Utm.toMgrs(p.lat, p.lon) ?: "Outside the MGRS grid"

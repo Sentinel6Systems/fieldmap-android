@@ -54,6 +54,8 @@ import io.github.sentinel6systems.fieldmap.server.TileServer
 import io.github.sentinel6systems.fieldmap.share.Ageing
 import io.github.sentinel6systems.fieldmap.share.Fix
 import io.github.sentinel6systems.fieldmap.share.ShareJson
+import io.github.sentinel6systems.fieldmap.share.ShareService
+import io.github.sentinel6systems.fieldmap.share.toFix
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -198,7 +200,14 @@ class MainActivity : AppCompatActivity() {
         b.panelClose.setOnClickListener { panels.show(Screen.NONE) }
         b.panelBack.setOnClickListener { panels.back() }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() { if (panels.screen == Screen.NONE) finish() else panels.back() }
+            override fun handleOnBackPressed() {
+                when {
+                    panels.screen != Screen.NONE -> panels.back()
+                    // While the position is shared, Back leaves the app as Home does: sharing goes on.
+                    ShareService.running -> moveTaskToBack(true)
+                    else -> finish()
+                }
+            }
         })
 
         ViewCompat.setOnApplyWindowInsetsListener(b.root) { _, wi ->
@@ -374,8 +383,8 @@ class MainActivity : AppCompatActivity() {
                 Feature.fromGeometry(Point.fromLngLat(p.lon, p.lat)).apply {
                     addStringProperty("id", p.uid)
                     addStringProperty("name", p.name)
-                    addStringProperty("icon", if (Ageing.look(p.age, info.interval, info.stale) == Ageing.Look.FRESH) PEER_FRESH else PEER_OLD)
-                    addNumberProperty("opacity", Ageing.opacity(p.age, info.interval, info.stale))
+                    addStringProperty("icon", if (Ageing.look(p.age, info.interval, info.stale, p.still) == Ageing.Look.FRESH) PEER_FRESH else PEER_OLD)
+                    addNumberProperty("opacity", Ageing.opacity(p.age, info.interval, info.stale, p.still))
                 }
             },
         )
@@ -846,9 +855,35 @@ class MainActivity : AppCompatActivity() {
         style?.getLayerAs<CircleLayer>(PEER_SELECTED)?.setFilter(peerFilter())
     }
 
+    /** Android 13 and later ask before an app may show a notification. Sharing goes on either way. */
+    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
+    /**
+     * Has the position kept shared when the app leaves the screen. Only once the position
+     * may be used, and only from here, with the app in view: Android allows no other start.
+     */
+    private fun keepSharing() {
+        if (!sharing.on || !mayLocate()) return
+        ShareService.start(this)
+    }
+
+    /** Closes the app for good: the position goes from the others' maps, and nothing runs on. */
+    internal fun quit() {
+        sharing.closing()
+        finishAndRemoveTask()
+    }
+
     /** Switches sharing this phone's position on. It needs the position, so the permission is asked for first. */
     internal fun startSharing(name: String) {
-        val go = { sharing.switchOn(name); panels.rebuild(Screen.SHARING) }
+        val go = {
+            sharing.switchOn(name)
+            panels.rebuild(Screen.SHARING)
+            keepSharing()
+            // The notification that says sharing is on needs its own permission on newer phones.
+            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         if (mayLocate()) {
             if (!locationOn) style?.let(::startLocation)
             go()
@@ -859,17 +894,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** The phone's position as it is shared; null without one. */
-    internal fun fix(): Fix? = lastLocation()?.let { l ->
-        Fix(
-            l.latitude, l.longitude,
-            if (l.hasAltitude()) l.altitude.takeIf { it.isFinite() } else null,
-            if (l.hasAccuracy()) l.accuracy.toDouble().takeIf { it.isFinite() } else null,
-            if (l.hasBearing()) l.bearing.toDouble().takeIf { it.isFinite() } else null,
-            if (l.hasSpeed()) l.speed.toDouble().takeIf { it.isFinite() } else null,
-            // By the phone's running clock, which no one can set wrong.
-            System.currentTimeMillis() - (SystemClock.elapsedRealtimeNanos() - l.elapsedRealtimeNanos) / 1_000_000,
-        )
-    }
+    internal fun fix(): Fix? = lastLocation()?.toFix()
 
     internal fun markersChanged() {
         style?.getSourceAs<GeoJsonSource>(MARKERS)?.setGeoJson(markersOnMap())
@@ -1089,7 +1114,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onStart() { super.onStart(); b.map.onStart() }
+    override fun onStart() {
+        super.onStart()
+        b.map.onStart()
+        // In view, the app sends the position itself; the service waits, ready to take over.
+        ShareService.shown(true)
+        keepSharing()
+    }
 
     override fun onResume() {
         super.onResume()
@@ -1105,7 +1136,12 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
     }
 
-    override fun onStop() { b.map.onStop(); super.onStop() }
+    override fun onStop() {
+        b.map.onStop()
+        // Out of view: from here on the service keeps the position shared.
+        ShareService.shown(false)
+        super.onStop()
+    }
     override fun onLowMemory() { super.onLowMemory(); b.map.onLowMemory() }
     override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState); b.map.onSaveInstanceState(outState) }
 

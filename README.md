@@ -20,8 +20,8 @@ with gloves. It is not a route planner: it shows where you are, it does not give
   then on the app reaches the box from anywhere, through the box's own router, over an encrypted link that only
   paired phones can use. No account, nothing of anyone else's in between.
 - **Sharing with the other phones of the box**: switch it on and the others see where you are, by the name you
-  give; tick a marker and everyone has it. Off until you switch it on, and only between phones that reach the
-  same box. No account for this either.
+  give, also while the phone is in your pocket; tick a marker and everyone has it. Off until you switch it on,
+  and only between phones that reach the same box. No account for this either.
 - **Nothing else**: no account, no advertising, no analytics. The app talks only to the server you give it.
 
 It works with any [TileServer GL](https://github.com/maptiler/tileserver-gl) server that offers vector styles;
@@ -94,7 +94,7 @@ Open the app. The strip at the top says **Offline** and the map draws from what 
 |---|---|
 | **Follow** | Shows where you are and keeps the map on you, north up. Press again: the direction you are heading is up (by the direction of travel when driving, by the compass when walking). Drag the map to let go. |
 | **+ −** | Zoom. Pinching and double-tapping work too. |
-| **Menu** | Map style, saved areas, markers, sharing, server. |
+| **Menu** | Map style, saved areas, markers, sharing, server, and **Close Fieldmap**. |
 
 **To mark a spot, press and hold it on the map for two seconds.** A ring fills around your finger; when it is
 full the marker is there and its panel opens. It gets the next name (P1, P2, ...) and the colour you used last;
@@ -147,9 +147,27 @@ should see you by (up to 24 characters), press **Share my position**. The strip 
 others' maps at once. The setting is remembered: if sharing was on when you closed the app, it is on again when
 you open it, and the tag says so.
 
-Your position is sent only while the app is open on the screen. When you close the app for good you are taken
-off the others' maps at once; when the app is merely left, or the screen goes off, your last position stays
-where it was, turns grey, fades, and is gone after about two minutes.
+Once it is on, your position keeps being shared when you leave the app or the screen goes off. A notification
+says so for as long as it lasts ("Fieldmap is sharing your position"), with a **Stop sharing** button on it.
+While sharing is on, the Back button on the map leaves the app as the Home button does; it does not close it.
+
+It ends when you close the app for good: **Menu › Close Fieldmap**, or swipe the app away in the list of recent
+apps. Either takes you off the others' maps at once. **Stop sharing my position**, in the Sharing panel or on
+the notification, ends the sharing and leaves the app open.
+
+**The battery.** With the app on the screen your position is sent every few seconds. In the background the app
+does as little as it can:
+
+- on the move it takes and sends a position about three times a minute, at rest once a minute; in between,
+  Android switches the satellite receiver off
+- at rest it leaves it to the phone's motion sensor, which costs next to nothing, to say when you set off again
+- it only sends; it does not ask who else is there, or for markers, until you look at the map again
+- it holds the phone awake only for the seconds a message takes
+
+The others see a phone that rests as live for a minute and a half without news, and one on the move for half
+a minute; after that it turns grey. Android may still end the sharing by itself, on a phone that is very short
+of memory or has lain still for hours in its deepest sleep; your position then turns grey on the others' maps
+and goes after two minutes, and sharing starts again when you open the app.
 
 **The others.** Each is a light blue diamond with the name beside it, so that it cannot be taken for a marker (a
 round dot) or for your own position. A diamond that has not been heard from for a while turns grey and fades;
@@ -164,8 +182,7 @@ everyone (the app asks first). Shared markers are kept on the phone, so they are
 network. Changes you make to them out of reach are sent when the box answers again; if somebody else changed the
 same marker in the meantime, the later change stays.
 
-What is not there yet: sharing your position with the screen off or the app in the background (it needs a
-background service; see "What is next"), groups (one box is one room), messages, and working with TAK apps.
+What is not there yet (see "What is next"): groups (one box is one room), messages, and working with TAK apps.
 
 ### Markers and the print tool
 
@@ -190,13 +207,16 @@ shows markers only.
   as done.) Deleting an area frees its space, and also drops the maps that were only looked at.
 - Saved areas remember the address they came from. If the box gets another address, they still work, and
   new areas are saved from the new address.
-- The download runs while the app is open. There is no background service yet.
+- The download runs while the app is open. Downloads do not run in the background yet.
 
 ## Permissions
 
 | Permission | Why |
 |---|---|
-| Location | To show where you are. Asked the first time you press Follow. The position stays on the phone, unless you switch on sharing it: then it goes to your box, and from there to the phones that reach it, while the app is open. |
+| Location | To show where you are. Asked the first time you press Follow. The position stays on the phone, unless you switch on sharing it: then it goes to your box, and from there to the phones that reach it, until you stop sharing or close the app. The app asks only for the position "while the app is in use"; it does not ask for "all the time". |
+| Notifications | For the one notification that says your position is being shared. Asked when you switch sharing on (Android 13 and later). Without it sharing works the same; Android then shows it only in its list of running apps. |
+| Run in the background, with location | The same thing: what keeps a shared position going while the app is not on the screen. Only while sharing is on. |
+| Keep the phone awake | For the few seconds a position takes to send from the background. |
 | Network | To reach the tile server you set. Plain `http` is allowed, because a box on a home network has no certificate. |
 
 A box with its own Wi-Fi often has no internet behind it, and Android then keeps sending the apps' traffic over
@@ -247,11 +267,32 @@ its gateway, with a second phone played by a script:
 - sharing switched off on the box (the app says so and asks again once a minute) and on again
 - all of it again through the gateway, with the home address cut off (the strip reads **Remote**)
 
-Not tested yet for sharing: two real phones, a real box, a link that comes and goes, and many phones at once.
+Sharing was then tried by hand with two phones (a Google Pixel on Android 16 and a rugged Android 13 phone) on a
+fieldmap-server box behind Internet-in-a-Box, on the box's network: each showed the other, and a marker shared on
+one arrived on the other.
+
+Sharing in the background was tested on the emulator:
+
+- the pace by the box's log: every 20 seconds after leaving the app or switching the screen off, every 60
+  seconds after a minute in one place, back to 20 when the position jumped, and the app's own pace again once it
+  was back on the screen; no questions to the box from the background, only positions
+- Back on the map leaving the app with sharing going on; swiping the app away, **Close Fieldmap** and **Stop
+  sharing** on the notification each taking the position off the box at once, with nothing left asking for
+  positions afterwards
+- the notification, and Android's question about notifications when sharing is switched on
+- in the background, the home address going away (sharing moved to the gateway by itself) and coming back
+  while the gateway did not answer (it moved home again)
+- on another phone's map: a phone at rest still shown as live after 48 seconds without news, one on the move
+  shown grey
+
+Not tested yet for sharing: the background on a real phone (the battery it really costs, the motion sensor, a
+night with the phone lying still, the phone makers' own battery savers), a link that comes and goes, and many
+phones at once.
 
 The unit tests cover the grid references (against the print tool's own results), the markers file, address
 handling, tile counting, and sharing: what is sent and read, bringing shared markers together (changed since
-the last answer, the whole list, removed ones, the last change winning) and how a position ages.
+the last answer, the whole list, removed ones, the last change winning), how a position ages, the pace in the
+background and telling rest from movement.
 
 Not tested yet: a box whose Wi-Fi has no internet, a download of several gigabytes, a long drive or hike, and
 phones without Google services.
@@ -260,10 +301,11 @@ phones without Google services.
 
 Not built yet, in no fixed order:
 
-- **Sharing with the screen off.** Today a position is sent only while the app is open on the screen. Sending it
-  from a pocket needs a background service with a lasting notification, and Android's permission for location
-  in the background.
-- **Downloads in the background**, for the same reason.
+- **Sharing that starts by itself** after the phone was restarted, or after Android ended it. Today you open the
+  app once. Starting from nothing needs Android's permission for location "all the time".
+- **A position that says when the next one is due.** Today the others tell a resting phone by the speed it
+  reports; the box's interface could carry it outright.
+- **Downloads in the background.**
 - **Groups.** One box is one room: everyone who reaches it sees everyone.
 - **Messages** between the phones.
 - **TAK compatibility** (CoT). The app and the box talk their own small JSON; ATAK and other TAK apps cannot
@@ -278,7 +320,7 @@ Not built yet, in no fixed order:
 | `.../remote/` | Pairing: the phone's key, being let in by the box, its addresses, the connection to its gateway |
 | `.../offline/` | Saved areas on top of MapLibre's offline regions; counting tiles and estimating sizes |
 | `.../data/` | Markers and their file format |
-| `.../share/` | Live sharing: what is sent to and read from the box's `/mapshare/` service, bringing shared markers together (last change wins), and how a position ages |
+| `.../share/` | Live sharing: what is sent to and read from the box's `/mapshare/` service, bringing shared markers together (last change wins), how a position ages, and the service that keeps the position shared in the background (`ShareService`) |
 | `.../geo/` | UTM and MGRS; the GPS source |
 | `app/src/main/res/values*/colors.xml` | The colours of fieldmap-server's `ui/fieldmap.css`, light and dark |
 | `app/src/test/` | Unit tests |

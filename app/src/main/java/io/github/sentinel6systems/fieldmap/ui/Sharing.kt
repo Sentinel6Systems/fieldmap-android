@@ -11,7 +11,9 @@ import io.github.sentinel6systems.fieldmap.share.Pending
 import io.github.sentinel6systems.fieldmap.share.ShareClient
 import io.github.sentinel6systems.fieldmap.share.ShareInfo
 import io.github.sentinel6systems.fieldmap.share.ShareJson
+import io.github.sentinel6systems.fieldmap.share.ShareLine
 import io.github.sentinel6systems.fieldmap.share.ShareMerge
+import io.github.sentinel6systems.fieldmap.share.ShareService
 import io.github.sentinel6systems.fieldmap.share.ShareState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -23,6 +25,9 @@ import org.json.JSONObject
  * position (only while the person has that switched on), asks who else is there and which
  * shared markers changed, and sends the marker changes made here. Out of reach it does
  * nothing; what is waiting goes out when the box answers again.
+ *
+ * With the app in the background its rounds stop. The position is then kept shared by
+ * share/ShareService.kt, which only sends; the two go by the same ShareLine.
  */
 class Sharing(private val a: MainActivity) {
     /** What the server said about sharing. */
@@ -30,10 +35,17 @@ class Sharing(private val a: MainActivity) {
 
     var box = Box.UNKNOWN
         private set
-    var info = ShareInfo(true, 5, 120)
-        private set
+    // Where the box answers, its pace, and when the position last got through: the background service goes by them too.
+    var info: ShareInfo
+        get() = ShareLine.info
+        private set(v) { ShareLine.info = v }
+    private var base: String?
+        get() = ShareLine.base
+        set(v) { ShareLine.base = v }
+    private var sentAt: Long
+        get() = ShareLine.sentAt
+        set(v) { ShareLine.sentAt = v }
 
-    private var base: String? = null            // the sharing address that answered
     private var asked = 0L                      // when the box was last asked what it offers
     private var rev: Long? = null               // the marker changes this phone has seen
     private var peers: List<Peer> = emptyList()
@@ -42,7 +54,6 @@ class Sharing(private val a: MainActivity) {
     private var nextAt = 0L
     private var editedInRound = false
     private var leaveAfter = false
-    private var sentAt = 0L                     // when this phone's position last reached the box
     private var saidOff = false
     private var drawn = ""
     private var said = ""
@@ -58,7 +69,7 @@ class Sharing(private val a: MainActivity) {
     /** The other phones, each with its age as of now; the ones that are too old are left out. */
     fun others(): List<Peer> {
         val waited = ((now() - peersAt) / 1000).toInt()
-        return peers.map { it.copy(age = it.age + waited) }.filter { Ageing.look(it.age, info.interval, info.stale) != Ageing.Look.GONE }
+        return peers.map { it.copy(age = it.age + waited) }.filter { Ageing.look(it.age, info.interval, info.stale, it.still) != Ageing.Look.GONE }
     }
 
     fun other(uid: String): Peer? = others().firstOrNull { it.uid == uid }
@@ -76,12 +87,15 @@ class Sharing(private val a: MainActivity) {
     /** Stops sending, and takes this phone's position off the box at once. */
     fun switchOff() {
         a.prefs.shareOn = false
+        ShareService.stop(a)
         if (busy) leaveAfter = true else leave()
         a.shareChanged()
     }
 
     /** The app is being closed for good. */
-    fun closing() { if (on) leave() }
+    fun closing() {
+        if (!ShareService.close() && on) leave()
+    }
 
     private fun leave() {
         leaveAfter = false
@@ -132,7 +146,7 @@ class Sharing(private val a: MainActivity) {
     /** Once a second while the app is on the screen. */
     fun tick() {
         // Positions grow older between answers, and with no answers at all.
-        val look = others().joinToString { "${it.uid}:${(Ageing.opacity(it.age, info.interval, info.stale) * 10).toInt()}" }
+        val look = others().joinToString { "${it.uid}:${(Ageing.opacity(it.age, info.interval, info.stale, it.still) * 10).toInt()}" }
         if (look != drawn) { drawn = look; a.peersChanged() }
         val words = summary() + live
         if (words != said) { said = words; a.shareChanged() }

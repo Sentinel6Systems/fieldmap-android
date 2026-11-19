@@ -22,7 +22,10 @@ data class Peer(
     val uid: String, val name: String, val lat: Double, val lon: Double,
     val alt: Double? = null, val acc: Double? = null, val course: Double? = null, val speed: Double? = null,
     val age: Int = 0,
-)
+) {
+    /** Said to be staying where it is: such a phone sends seldom (see Pace), and is not old for that. */
+    val still get() = speed != null && speed < 0.3
+}
 
 /** This phone's position as it is sent. `time`: when the fix was taken, ms since 1970. */
 data class Fix(val lat: Double, val lon: Double, val alt: Double?, val acc: Double?, val course: Double?, val speed: Double?, val time: Long)
@@ -161,19 +164,24 @@ object ShareMerge {
 object Ageing {
     enum class Look { FRESH, OLD, GONE }
 
-    /** Seconds a position counts as live: a few posts may go missing on a poor link. */
-    fun freshFor(interval: Int, stale: Int): Int = minOf(maxOf(4 * interval, 20), stale / 2).coerceAtLeast(1)
+    /**
+     * Seconds a position counts as live. A phone on the move sends every few of the box's
+     * intervals, and a post may go missing on a poor link; one that stays where it is sends
+     * about twice before the box would drop it.
+     */
+    fun freshFor(interval: Int, stale: Int, still: Boolean = false): Int =
+        (if (still) stale * 3 / 4 else minOf(maxOf(6 * interval, 30), stale / 2)).coerceAtLeast(1)
 
-    fun look(age: Int, interval: Int, stale: Int): Look = when {
+    fun look(age: Int, interval: Int, stale: Int, still: Boolean = false): Look = when {
         age >= stale -> Look.GONE
-        age >= freshFor(interval, stale) -> Look.OLD
+        age >= freshFor(interval, stale, still) -> Look.OLD
         else -> Look.FRESH
     }
 
     /** 1 while live, then from 0.85 down to 0.4 at the moment it is dropped. */
-    fun opacity(age: Int, interval: Int, stale: Int): Float {
-        val fresh = freshFor(interval, stale)
-        return when (look(age, interval, stale)) {
+    fun opacity(age: Int, interval: Int, stale: Int, still: Boolean = false): Float {
+        val fresh = freshFor(interval, stale, still)
+        return when (look(age, interval, stale, still)) {
             Look.FRESH -> 1f
             Look.GONE -> 0f
             Look.OLD -> 0.85f - 0.45f * (age - fresh) / (stale - fresh).coerceAtLeast(1)
@@ -185,5 +193,71 @@ object Ageing {
         age < 90 -> "$age s ago"
         age < 5400 -> "${age / 60} min ago"
         else -> "${age / 3600} h ago"
+    }
+}
+
+/**
+ * How often a phone takes and sends its position while the app is not on the screen. Every
+ * position costs the satellite receiver and the radio a wake-up, so: a few of the box's
+ * intervals apart on the move, and about twice in the time the box keeps a position while the
+ * phone stays where it is.
+ */
+object Pace {
+    /** Seconds between positions on the move. */
+    fun moving(info: ShareInfo): Int = (4 * info.interval).coerceIn(15, maxOf(15, info.stale / 3))
+
+    /** Seconds between positions while staying in one place. */
+    fun still(info: ShareInfo): Int = maxOf(moving(info), info.stale / 2)
+}
+
+/** Tells from its positions alone whether a phone is on the move or staying where it is. */
+class Mover {
+    var still = false
+        private set
+    private var anchor: Pair<Double, Double>? = null
+    private var quiet = 0
+
+    /** Takes a position. Returns true when `still` changed with it. */
+    fun take(lat: Double, lon: Double, acc: Double?, speed: Double?): Boolean {
+        val was = still
+        val from = anchor
+        // Away from where it rested by more than the position's own doubt explains, or
+        // travelling at a walk or more by a position good enough to say so.
+        val moved = from != null && metres(from.first, from.second, lat, lon) > maxOf(MIN_MOVE, 2 * (acc ?: 0.0))
+        val travelling = (speed ?: 0.0) >= WALK && (acc ?: 0.0) <= GOOD
+        if (from == null || moved || travelling) {
+            anchor = lat to lon
+            quiet = 0
+            still = false
+        } else if (++quiet >= SETTLE) {
+            still = true
+        }
+        return still != was
+    }
+
+    /** The phone's motion sensor says it is being carried off. Returns true when `still` changed. */
+    fun nudge(): Boolean {
+        val was = still
+        quiet = 0
+        still = false
+        return was
+    }
+
+    companion object {
+        const val MIN_MOVE = 30.0       // metres
+        const val WALK = 1.0            // metres a second
+        const val GOOD = 50.0           // metres: a rougher position's speed says nothing
+        /** Positions in a row without movement before the phone counts as staying. */
+        const val SETTLE = 3
+
+        /** Metres between two places, on a sphere: good to a few parts in a thousand. */
+        fun metres(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+            val p1 = Math.toRadians(lat1)
+            val p2 = Math.toRadians(lat2)
+            val dp = p2 - p1
+            val dl = Math.toRadians(lon2 - lon1)
+            val h = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2)
+            return 2 * 6_371_008.8 * Math.asin(Math.sqrt(h))
+        }
     }
 }
