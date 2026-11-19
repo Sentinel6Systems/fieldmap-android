@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -114,6 +115,7 @@ fun Context.row(title: String, detail: CharSequence? = null, dot: Int? = null, i
         setPadding(dp(4), dp(8), dp(4), dp(9))
         setBackgroundResource(R.drawable.bg_row)
         layoutParams = lp()
+        val row = this
         if (dot != null) addView(DotView(context, dot), LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(12) })
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -123,11 +125,25 @@ fun Context.row(title: String, detail: CharSequence? = null, dot: Int? = null, i
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
                 setTextColor(color(R.color.ink))
             })
-            if (detail != null) addView(mono(detail, 13f))
+            // The row's tag is its line of detail, for lists that change the words in place.
+            if (detail != null) addView(mono(detail, 13f).also { row.tag = it })
         }, lp(0, WRAP, 1f))
         if (icon != null && onClick != null) addView(ImageView(context).apply {
             setImageResource(icon)
             imageTintList = ColorStateList.valueOf(color(if (icon == R.drawable.ic_check) R.color.sig else R.color.muted))
         }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(8) })
         if (onClick != null) { isClickable = true; isFocusable = true; setOnClickListener { onClick() } }
+    }
+
+/** A choice that is on or off: a box with a tick in it, the words beside it. The whole row is the target. */
+fun Context.check(title: String, detail: CharSequence?, on: Boolean, onChange: (Boolean) -> Unit): LinearLayout =
+    row(title, detail, icon = null) { onChange(!on) }.apply {
+        contentDescription = "$title: ${if (on) "on" else "off"}"
+        addView(FrameLayout(context).apply {
+            setBackgroundResource(if (on) R.drawable.bg_primary_normal else R.drawable.bg_field)
+            if (on) addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_check)
+                imageTintList = ColorStateList.valueOf(color(R.color.on_sig))
+            }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        }, 0, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(14) })
     }

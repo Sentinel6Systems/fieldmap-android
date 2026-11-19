@@ -14,6 +14,7 @@ import androidx.core.widget.doAfterTextChanged
 import io.github.sentinel6systems.fieldmap.BuildConfig
 import io.github.sentinel6systems.fieldmap.R
 import io.github.sentinel6systems.fieldmap.data.Drawings
+import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.Palette
 import io.github.sentinel6systems.fieldmap.geo.Utm
 import io.github.sentinel6systems.fieldmap.offline.Areas
@@ -28,6 +29,9 @@ import io.github.sentinel6systems.fieldmap.server.Finder
 import io.github.sentinel6systems.fieldmap.server.Found
 import io.github.sentinel6systems.fieldmap.server.ServerAddress
 import io.github.sentinel6systems.fieldmap.server.TileServer
+import io.github.sentinel6systems.fieldmap.share.Ageing
+import io.github.sentinel6systems.fieldmap.share.Peer
+import io.github.sentinel6systems.fieldmap.share.ShareJson
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -45,6 +49,8 @@ enum class Screen(val title: String, val parent: Screen?) {
     SAVE("Save a new area", AREAS),
     MARKERS("Markers", MENU),
     MARKER("Marker", null),
+    SHARING("Sharing", MENU),
+    PEER("Shared position", null),
     SERVER("Server", MENU),
 }
 
@@ -57,6 +63,7 @@ class Panels(private val a: MainActivity) {
         private set
     private val body get() = a.b.panelBody
     private var markerFromList = false
+    private var markerShare: View? = null
 
     // The Save screen's moving parts.
     private var estimateJob: Job? = null
@@ -71,17 +78,41 @@ class Panels(private val a: MainActivity) {
     private var serverRemote: LinearLayout? = null
     private var serverBusy = false
 
-    fun back() = show(if (screen == Screen.MARKER && markerFromList) Screen.MARKERS else screen.parent ?: Screen.NONE)
+    // The Sharing screen's moving parts, and those of another phone's panel.
+    private var shareAbout: TextView? = null
+    private var shareMine: TextView? = null
+    private var sharePeers: LinearLayout? = null
+    private var sharePeerRows = ""
+    private var peerFromList = false
+    private var peerShown: Peer? = null
+    private var peerWhen: TextView? = null
+    private var peerGrid: TextView? = null
+    private var peerWhere: TextView? = null
+
+    fun back() = show(when {
+        screen == Screen.MARKER && markerFromList -> Screen.MARKERS
+        screen == Screen.PEER && peerFromList -> Screen.SHARING
+        else -> screen.parent ?: Screen.NONE
+    })
 
     fun showMarker(fromList: Boolean) {
         markerFromList = fromList
         show(Screen.MARKER)
     }
 
+    fun showPeer(fromList: Boolean) {
+        peerFromList = fromList
+        show(Screen.PEER)
+    }
+
+    /** Builds a screen again, if it is the one showing. */
+    fun rebuild(which: Screen) { if (screen == which) { hideKeyboard(); build() } }
+
     fun show(next: Screen) {
         hideKeyboard()
         if (screen == Screen.SAVE) estimateJob?.cancel()
         if (screen == Screen.MARKER && next != Screen.MARKER) a.select(null)
+        if (screen == Screen.PEER && next != Screen.PEER) a.selectPeer(null)
         screen = next
         val open = next != Screen.NONE
         a.b.panel.visibility = if (open) View.VISIBLE else View.GONE
@@ -89,7 +120,7 @@ class Panels(private val a: MainActivity) {
         for (v in listOf(a.b.position, a.b.menu, a.b.foot)) v.visibility = if (open) View.GONE else View.VISIBLE
         a.b.frame.visibility = if (next == Screen.SAVE) View.VISIBLE else View.GONE
         a.b.panelTitle.text = next.title
-        val hasBack = next.parent != null || (next == Screen.MARKER && markerFromList)
+        val hasBack = next.parent != null || (next == Screen.MARKER && markerFromList) || (next == Screen.PEER && peerFromList)
         a.b.panelBack.visibility = if (hasBack) View.VISIBLE else View.GONE
         a.b.panelTitle.setPadding(if (hasBack) 0 else a.dp(16), 0, 0, 0)
         a.b.panelScroll.scrollTo(0, 0)
@@ -103,6 +134,9 @@ class Panels(private val a: MainActivity) {
         when (screen) {
             Screen.MENU, Screen.STYLES, Screen.AREAS, Screen.MARKERS -> build()
             Screen.SAVE -> estimate()
+            Screen.SHARING -> sharingFill()
+            // Only the words: the name may be being typed.
+            Screen.MARKER -> a.selected?.let { a.markers.get(it) }?.let { (markerShare?.tag as? TextView)?.text = shareDetail(it) }
             Screen.SERVER -> if (!serverBusy) { serverText?.text = serverState(); if (a.remoteNow || !a.reachable) remoteSection(null) }
             else -> {}
         }
@@ -120,6 +154,8 @@ class Panels(private val a: MainActivity) {
             Screen.SAVE -> save()
             Screen.MARKERS -> markers()
             Screen.MARKER -> marker()
+            Screen.SHARING -> sharing()
+            Screen.PEER -> peer()
             Screen.SERVER -> server()
             Screen.NONE -> {}
         }
@@ -135,6 +171,7 @@ class Panels(private val a: MainActivity) {
         add(a.row("Map style", a.shownStyleName() ?: "None") { show(Screen.STYLES) })
         add(a.row("Saved areas", if (saved.isEmpty()) "None yet" else "${saved.size} on this phone, ${bytesText(a.areas.storedBytes())} used") { show(Screen.AREAS) })
         add(a.row("Markers", if (a.markers.markers.isEmpty()) "None yet" else "${a.markers.markers.size}") { show(Screen.MARKERS) })
+        add(a.row("Sharing", a.sharing.summary()) { show(Screen.SHARING) })
         add(a.row("Server", a.prefs.server?.let { ServerAddress.short(it) + if (a.reachable) " · connected" else " · out of reach" } ?: "Not set") { show(Screen.SERVER) })
         add(a.mono("Fieldmap ${BuildConfig.VERSION_NAME}", 12f).apply { layoutParams = lp(top = a.dp(14)) })
     }
@@ -269,7 +306,7 @@ class Panels(private val a: MainActivity) {
         if (list.isEmpty()) add(a.body("No markers yet. To mark a spot, press and hold it on the map for two seconds. Hold the blue dot to mark where you are.", muted = true, top = 12))
         for (m in list.asReversed()) {
             val where = Utm.toMgrs(m.lat, m.lon, 4) ?: String.format(Locale.US, "%.5f, %.5f", m.lat, m.lon)
-            add(a.row(m.label.ifEmpty { "(no name)" }, where, dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
+            add(a.row(m.label.ifEmpty { "(no name)" }, where + if (m.shared) " · shared" else "", dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
         }
         add(a.label("Markers as a file"))
         add(a.body("The file opens in the print tool of the server (Load drawings) and in other map software.", muted = true))
@@ -280,6 +317,7 @@ class Panels(private val a: MainActivity) {
     }
 
     private fun marker() {
+        markerShare = null
         val m = a.selected?.let { a.markers.get(it) } ?: return
         add(a.label("Name", top = 10))
         val name = a.field("Name", m.label, max = Drawings.MAX_LABEL) { hideKeyboard() }
@@ -313,8 +351,14 @@ class Panels(private val a: MainActivity) {
         place()
         add(grid)
         add(latlon)
+
+        // One choice, off until the person makes it. A server known to have no sharing does not offer it.
+        if (m.shared || a.sharing.box != Sharing.Box.NONE) {
+            markerShare = a.check("Share with everyone on this box", shareDetail(m), m.shared) { on -> hideKeyboard(); a.shareMarker(m.id, on); build() }
+                .apply { layoutParams = lp(top = a.dp(10)) }.also(::add)
+        }
         add(a.buttons(
-            a.button("Delete", Kind.DANGER) { a.deleteMarker(m.id); back() },
+            a.button("Delete", Kind.DANGER) { if (a.markers.get(m.id)?.shared == true) confirmDeleteShared(m.id) else { a.deleteMarker(m.id); back() } },
             a.button("Move to crosshair") {
                 val c = a.map?.cameraPosition?.target ?: return@button
                 a.markers.get(m.id)?.let { a.updateMarker(it.copy(lat = c.latitude, lon = c.longitude)) }
@@ -322,6 +366,107 @@ class Panels(private val a: MainActivity) {
             }.apply { enable(a.follow == Follow.FREE) },
             top = 16,
         ))
+    }
+
+    private fun shareDetail(m: Marker): String = when {
+        !m.shared -> "Off: this marker is on this phone only."
+        a.sharing.waiting(m.id) -> "Waiting to be sent to the box."
+        else -> "Everyone who reaches the box sees it and can change or delete it. Unticking takes it off the box, not off this phone."
+    }
+
+    private fun confirmDeleteShared(id: String) {
+        AlertDialog.Builder(a)
+            .setTitle("Delete this shared marker?")
+            .setMessage("It is deleted for everyone on this box.")
+            .setNegativeButton("Keep", null)
+            .setPositiveButton("Delete") { _, _ -> a.deleteMarker(id); if (screen == Screen.MARKER) back() }
+            .show()
+    }
+
+    /* ---------- sharing ---------- */
+
+    private fun sharing() {
+        val s = a.sharing
+        shareAbout = a.body(s.about(), muted = true, top = 12).also(::add)
+        add(a.label("My position"))
+        val name = a.field("Your name on the map", a.prefs.shareName, max = ShareJson.MAX_NAME) { hideKeyboard() }
+        if (s.on) {
+            shareMine = a.body(s.mine()).also(::add)
+            add(a.body("It is sent while this app is open on the screen. When the app is closed, or the screen goes off, the others see your last position grow old and go.", muted = true, top = 8))
+            add(a.label("Name"))
+            name.doAfterTextChanged { text -> ShareJson.name(text?.toString().orEmpty()).ifEmpty { null }?.let { a.prefs.shareName = it } }
+            add(name)
+            add(a.button("Stop sharing my position", Kind.DANGER) { a.sharing.switchOff(); rebuild(Screen.SHARING) }.apply { layoutParams = lp(top = a.dp(12)) })
+        } else {
+            shareMine = null
+            add(a.body("Off. Switched on, everyone who reaches this box sees where you are, under the name you give here, while this app is open on the screen."))
+            add(a.label("Name"))
+            add(name)
+            val go = a.button("Share my position", Kind.PRIMARY) { a.startSharing(name.text.toString()) }
+            fun ready() = go.enable(a.prefs.server != null && s.box != Sharing.Box.NONE && ShareJson.name(name.text.toString()).isNotEmpty())
+            name.doAfterTextChanged { ready() }
+            ready()
+            add(go.apply { layoutParams = lp(top = a.dp(12)) })
+        }
+        add(a.label("Others on this box"))
+        sharePeers = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; layoutParams = lp() }.also(::add)
+        sharePeerRows = "?"
+        sharingFill()
+    }
+
+    private fun peerDetail(p: Peer): String = listOfNotNull(Ageing.text(p.age), a.fromHere(p.lat, p.lon, brief = true)).joinToString(" · ")
+
+    /** The words of the Sharing screen as they stand now; the name being typed is left alone. */
+    private fun sharingFill() {
+        val s = a.sharing
+        shareAbout?.text = s.about()
+        shareMine?.text = s.mine()
+        val list = sharePeers ?: return
+        val others = s.others()
+        val rows = others.joinToString { it.uid + it.name }
+        if (rows != sharePeerRows) {
+            // Rows are made again only when someone came, went or changed name: a row that is
+            // being pressed must not be taken away under the finger.
+            sharePeerRows = rows
+            list.removeAllViews()
+            if (others.isEmpty()) list.addView(a.body(if (s.box == Sharing.Box.ON && a.reachable) "Nobody else is sharing a position now." else "Nobody to show now.", muted = true))
+            for (p in others) list.addView(a.row(p.name, peerDetail(p), icon = R.drawable.ic_next) { a.openPeer(p.uid, fromList = true) })
+        } else {
+            others.forEachIndexed { i, p -> (list.getChildAt(i)?.tag as? TextView)?.text = peerDetail(p) }
+        }
+    }
+
+    /** Another phone, tapped on the map or chosen in the list: who, how long ago, where, how far. */
+    private fun peer() {
+        val uid = a.selectedPeer ?: return
+        peerShown = a.sharing.other(uid)
+        add(a.body(peerShown?.name.orEmpty(), top = 12).apply { setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22f); typeface = android.graphics.Typeface.DEFAULT_BOLD })
+        peerWhen = a.body("", muted = true, top = 4).also(::add)
+        add(a.label("Position"))
+        peerGrid = a.mono("", 18f, muted = false).also(::add)
+        peerWhere = a.mono("").also(::add)
+        peerFill()
+    }
+
+    private fun peerFill() {
+        val uid = a.selectedPeer ?: return
+        val info = a.sharing.info
+        val now = a.sharing.other(uid)
+        if (now != null) peerShown = now
+        val p = peerShown ?: return
+        peerWhen?.text = when {
+            now == null -> "No longer shared. This is where ${p.name} was last."
+            Ageing.look(p.age, info.interval, info.stale) == Ageing.Look.FRESH -> "Updated ${Ageing.text(p.age)}."
+            else -> "Last updated ${Ageing.text(p.age)}. ${p.name} may have moved since."
+        }
+        peerGrid?.text = Utm.toMgrs(p.lat, p.lon) ?: "Outside the MGRS grid"
+        peerWhere?.text = String.format(Locale.US, "%.5f, %.5f", p.lat, p.lon) + (a.fromHere(p.lat, p.lon)?.let { "\n$it" } ?: "")
+    }
+
+    /** Once a second: the ages in the open panel of another phone, and in the list. */
+    fun peerTick() {
+        if (screen == Screen.PEER) peerFill()
+        if (screen == Screen.SHARING) sharingFill()
     }
 
     /* ---------- server ---------- */

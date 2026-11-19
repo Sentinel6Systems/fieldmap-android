@@ -75,15 +75,35 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/status"
-            style="@style/Label"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:background="@drawable/bg_chip"
-            android:paddingHorizontal="8dp"
-            android:paddingVertical="6dp" />
+            android:gravity="end"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/status"
+                style="@style/Label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_chip"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="6dp" />
+
+            <!-- Shown while this phone's position is shared: a tag, not a button. -->
+            <TextView
+                android:id="@+id/sharing"
+                style="@style/Label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:background="@drawable/bg_chip"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="2dp"
+                android:text="@string/sharing"
+                android:visibility="gone" />
+        </LinearLayout>
     </LinearLayout>
 
     <TextView

@@ -39,6 +39,13 @@ class MarkerStore(private val file: File) {
         save()
     }
 
+    /** The whole list at once: what a round with the box left of it. */
+    fun replaceAll(list: List<Marker>) {
+        if (list == markers) return
+        markers = list
+        save()
+    }
+
     /** Adds the markers of a loaded file, leaving out the ones already here. Returns how many were added. */
     fun addAll(loaded: List<Marker>): Int {
         val have = markers.map { Triple(it.lat, it.lon, it.label) }.toMutableSet()
@@ -46,18 +53,21 @@ class MarkerStore(private val file: File) {
         val fresh = ArrayList<Marker>()
         for (m in loaded) {
             if (!have.add(Triple(m.lat, m.lon, m.label))) continue
-            fresh += if (ids.add(m.id)) m else m.copy(id = newId().also { ids.add(it) })
+            // What comes from a file is this phone's own until the person shares it.
+            val own = m.copy(shared = false, updated = "", by = "")
+            fresh += if (ids.add(own.id)) own else own.copy(id = newId().also { ids.add(it) })
         }
         markers = markers + fresh
         save()
         return fresh.size
     }
 
+    /** The markers as a file for the print tool and other software. */
     fun toGeoJson(): String = Drawings.toGeoJson(markers)
 
     private fun save() {
         val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(toGeoJson())
+        tmp.writeText(Drawings.toGeoJson(markers, sharing = true))
         if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
     }
 }

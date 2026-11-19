@@ -4,7 +4,11 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
 import android.location.Location
@@ -47,6 +51,9 @@ import io.github.sentinel6systems.fieldmap.server.MapStyle
 import io.github.sentinel6systems.fieldmap.server.Net
 import io.github.sentinel6systems.fieldmap.server.Route
 import io.github.sentinel6systems.fieldmap.server.TileServer
+import io.github.sentinel6systems.fieldmap.share.Ageing
+import io.github.sentinel6systems.fieldmap.share.Fix
+import io.github.sentinel6systems.fieldmap.share.ShareJson
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -74,6 +81,10 @@ import org.maplibre.android.style.layers.PropertyFactory.circleOpacity
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
+import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
+import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineDasharray
 import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
@@ -85,7 +96,9 @@ import org.maplibre.android.style.layers.PropertyFactory.textField
 import org.maplibre.android.style.layers.PropertyFactory.textFont
 import org.maplibre.android.style.layers.PropertyFactory.textHaloColor
 import org.maplibre.android.style.layers.PropertyFactory.textHaloWidth
+import org.maplibre.android.style.layers.PropertyFactory.textIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.textOffset
+import org.maplibre.android.style.layers.PropertyFactory.textOpacity
 import org.maplibre.android.style.layers.PropertyFactory.textSize
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -105,13 +118,15 @@ enum class Follow { FREE, NORTH, HEADING }
 /**
  * The one screen of the app: the map of a fieldmap-server box (or any TileServer GL), the
  * phone's position on it, coloured dot markers, and saved areas that work with no network.
- * The panels over the map are built in Panels.kt.
+ * The panels over the map are built in Panels.kt; sharing with other phones runs in Sharing.kt.
  */
 class MainActivity : AppCompatActivity() {
     internal lateinit var b: ActivityMainBinding
     internal lateinit var prefs: Prefs
     internal lateinit var markers: MarkerStore
     internal lateinit var areas: Areas
+    internal lateinit var sharing: Sharing
+        private set
     private lateinit var panels: Panels
     internal val scope = MainScope()
     internal var map: MapLibreMap? = null
@@ -133,6 +148,9 @@ class MainActivity : AppCompatActivity() {
     private var zoomOnFix = false
     /** The marker whose panel is open. */
     internal var selected: String? = null
+        private set
+    /** The other phone whose panel is open. */
+    internal var selectedPeer: String? = null
         private set
 
     private val ticker = Handler(Looper.getMainLooper())
@@ -164,6 +182,7 @@ class MainActivity : AppCompatActivity() {
         applyRemote()
         markers = MarkerStore(File(filesDir, "markers.geojson"))
         areas = Areas(this)
+        sharing = Sharing(this)
         panels = Panels(this)
 
         b.map.onCreate(savedInstanceState)
@@ -307,8 +326,59 @@ class MainActivity : AppCompatActivity() {
                 textColor("#111111"), textHaloColor(Color.WHITE), textHaloWidth(1.8f),
             ),
         )
+        // The other phones: a diamond with the name beside it, so that nobody takes one for a
+        // marker or for the phone's own position. Grey and fading once it stops being heard from.
+        st.addImage(PEER_FRESH, peerSymbol(Color.parseColor("#00b4d8")))
+        st.addImage(PEER_OLD, peerSymbol(Color.parseColor("#8a8f8a")))
+        st.addSource(GeoJsonSource(PEERS, peersOnMap()))
+        add(
+            CircleLayer(PEER_SELECTED, PEERS).withProperties(circleRadius(19f), circleOpacity(0f), circleStrokeColor(color(R.color.sig)), circleStrokeWidth(3f))
+                .withFilter(peerFilter()),
+        )
+        add(SymbolLayer(PEER_SYMBOLS, PEERS).withProperties(iconImage(Expression.get("icon")), iconAllowOverlap(true), iconIgnorePlacement(true), iconOpacity(Expression.get("opacity"))))
+        // The name is a layer of its own: letters that are not on the phone must not hide the diamond.
+        if (font != null) add(
+            SymbolLayer("fm-peers-name", PEERS).withProperties(
+                textField(Expression.get("name")), textFont(font), textSize(15f), textOffset(arrayOf(1.2f, 0f)),
+                textAnchor(Property.TEXT_ANCHOR_LEFT), textAllowOverlap(true), textIgnorePlacement(true), textOpacity(Expression.get("opacity")),
+                // In the diamond's own colour, darker: a person's name is not one of the map's place names.
+                textColor("#004e63"), textHaloColor(Color.WHITE), textHaloWidth(2.2f),
+            ),
+        )
         startLocation(st)
         updateReadout()
+    }
+
+    /** The symbol of another phone: a diamond in the given colour, white-edged like the markers. */
+    private fun peerSymbol(fill: Int): Bitmap {
+        val size = dp(30)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val c = size / 2f
+        fun diamond(r: Float, colour: Int) {
+            paint.color = colour
+            canvas.drawPath(Path().apply { moveTo(c, c - r); lineTo(c + r, c); lineTo(c, c + r); lineTo(c - r, c); close() }, paint)
+        }
+        diamond(c, 0x8c111111.toInt())
+        diamond(c - dp(2), Color.WHITE)
+        diamond(c - dp(6), fill)
+        return bitmap
+    }
+
+    private fun peerFilter() = Expression.eq(Expression.get("id"), Expression.literal(selectedPeer ?: ""))
+
+    private fun peersOnMap(): FeatureCollection = sharing.info.let { info ->
+        FeatureCollection.fromFeatures(
+            sharing.others().map { p ->
+                Feature.fromGeometry(Point.fromLngLat(p.lon, p.lat)).apply {
+                    addStringProperty("id", p.uid)
+                    addStringProperty("name", p.name)
+                    addStringProperty("icon", if (Ageing.look(p.age, info.interval, info.stale) == Ageing.Look.FRESH) PEER_FRESH else PEER_OLD)
+                    addNumberProperty("opacity", Ageing.opacity(p.age, info.interval, info.stale))
+                }
+            },
+        )
     }
 
     private fun selectedFilter() = Expression.eq(Expression.get("id"), Expression.literal(selected ?: ""))
@@ -404,6 +474,10 @@ class MainActivity : AppCompatActivity() {
         val room = h - above - top >= 2 * resources.getDimensionPixelSize(R.dimen.map_button) + 3 * gap
         b.controls.visibility = if (room) View.VISIBLE else View.INVISIBLE
         val m = map ?: return
+        // As the keyboard closes under a tall panel, the panel is for a moment still where the
+        // keyboard held it: no map would be left in view, and the map would jump. Wait for the
+        // panel's own layout, which comes here again.
+        if (top + bottom > h - dp(40)) return
         val padding = doubleArrayOf(0.0, top.toDouble(), right.toDouble(), bottom.toDouble())
         if (!padding.contentEquals(mapPadding)) {
             mapPadding = padding
@@ -555,6 +629,7 @@ class MainActivity : AppCompatActivity() {
     /** A server answered at the address typed or found: use it from now on. */
     internal fun useServer(found: Found) {
         val first = prefs.server != found.base
+        if (first) sharing.serverChanged()
         prefs.server = found.base
         prefs.styles = found.styles
         Http.route = Route.LAN
@@ -591,6 +666,10 @@ class MainActivity : AppCompatActivity() {
         }
         b.status.text = text
         b.status.setTextColor(color(colour))
+        // While this phone's position is shared, the strip says so: amber while it is getting
+        // through, grey while it is not (out of reach, no position yet).
+        b.sharing.visibility = if (sharing.on) View.VISIBLE else View.GONE
+        b.sharing.setTextColor(color(if (sharing.live) R.color.amber else R.color.muted))
     }
 
     /* ---------- saved areas ---------- */
@@ -677,10 +756,10 @@ class MainActivity : AppCompatActivity() {
         if (panels.screen == Screen.SAVE) return false
         val p = m.projection.toScreenLocation(at)
         val reach = dp(26).toFloat()                 // a gloved finger is not exact
-        val hits = m.queryRenderedFeatures(RectF(p.x - reach, p.y - reach, p.x + reach, p.y + reach), MARKER_DOTS)
-        val id = hits.firstOrNull()?.getStringProperty("id") ?: return false
-        openMarker(id, fromList = false)
-        return true
+        val around = RectF(p.x - reach, p.y - reach, p.x + reach, p.y + reach)
+        m.queryRenderedFeatures(around, MARKER_DOTS).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
+        m.queryRenderedFeatures(around, PEER_SYMBOLS).firstOrNull()?.getStringProperty("id")?.let { openPeer(it, fromList = false); return true }
+        return false
     }
 
     internal fun openMarker(id: String, fromList: Boolean) {
@@ -697,23 +776,107 @@ class MainActivity : AppCompatActivity() {
     }
 
     internal fun updateMarker(marker: Marker) {
-        markers.update(marker)
+        markers.update(if (marker.shared) sharing.edited(marker) else marker)
         prefs.color = marker.color
         markersChanged()
     }
 
     internal fun deleteMarker(id: String) {
+        if (markers.get(id)?.shared == true) sharing.removed(id)
         markers.delete(id)
         select(null)
         markersChanged()
+    }
+
+    /**
+     * Shares a marker with everyone who reaches the box, or takes it back: it then goes from
+     * the box and stays on this phone.
+     */
+    internal fun shareMarker(id: String, on: Boolean) {
+        val marker = markers.get(id) ?: return
+        val now = if (on) {
+            // The box takes only plain ids; a marker from a file may have another kind.
+            sharing.edited(if (ShareJson.ID.matches(id)) marker else marker.copy(id = markers.newId()))
+        } else {
+            sharing.removed(id)
+            marker.copy(shared = false, updated = "", by = "")
+        }
+        markers.replaceAll(markers.markers.map { if (it.id == id) now else it })
+        if (now.id != id && selected == id) select(now.id)
+        markersChanged()
+    }
+
+    /** The markers after a round with the box: other phones' changes are in, deleted ones are out. */
+    internal fun sharedMarkers(list: List<Marker>) {
+        val open = selected?.let(markers::get)
+        markers.replaceAll(list)
+        markersChanged()
+        val now = open?.let { markers.get(it.id) }
+        if (open != null && now == null) {
+            panels.back()
+            toast("${open.label.ifEmpty { "This marker" }} was deleted on another phone.")
+        } else if (open != null && now != open.copy(updated = now?.updated.orEmpty(), by = now?.by.orEmpty())) {
+            panels.rebuild(Screen.MARKER)
+        }
+        panels.refresh()
+    }
+
+    /* ---------- the other phones ---------- */
+
+    /** Draws the other phones again: one came, went, moved or grew older. */
+    internal fun peersChanged() {
+        style?.getSourceAs<GeoJsonSource>(PEERS)?.setGeoJson(peersOnMap())
+    }
+
+    /** Sharing changed its state: the tag in the strip and the panels follow. */
+    internal fun shareChanged() {
+        updateStatus()
+        panels.refresh()
+    }
+
+    internal fun openPeer(uid: String, fromList: Boolean) {
+        val peer = sharing.other(uid) ?: return
+        selectPeer(uid)
+        panels.showPeer(fromList)
+        if (follow == Follow.FREE) b.root.post { map?.animateCamera(CameraUpdateFactory.newLatLng(LatLng(peer.lat, peer.lon)), 400) }
+    }
+
+    internal fun selectPeer(uid: String?) {
+        selectedPeer = uid
+        style?.getLayerAs<CircleLayer>(PEER_SELECTED)?.setFilter(peerFilter())
+    }
+
+    /** Switches sharing this phone's position on. It needs the position, so the permission is asked for first. */
+    internal fun startSharing(name: String) {
+        val go = { sharing.switchOn(name); panels.rebuild(Screen.SHARING) }
+        if (mayLocate()) {
+            if (!locationOn) style?.let(::startLocation)
+            go()
+        } else {
+            afterLocation = go
+            askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+
+    /** The phone's position as it is shared; null without one. */
+    internal fun fix(): Fix? = lastLocation()?.let { l ->
+        Fix(
+            l.latitude, l.longitude,
+            if (l.hasAltitude()) l.altitude.takeIf { it.isFinite() } else null,
+            if (l.hasAccuracy()) l.accuracy.toDouble().takeIf { it.isFinite() } else null,
+            if (l.hasBearing()) l.bearing.toDouble().takeIf { it.isFinite() } else null,
+            if (l.hasSpeed()) l.speed.toDouble().takeIf { it.isFinite() } else null,
+            // By the phone's running clock, which no one can set wrong.
+            System.currentTimeMillis() - (SystemClock.elapsedRealtimeNanos() - l.elapsedRealtimeNanos) / 1_000_000,
+        )
     }
 
     internal fun markersChanged() {
         style?.getSourceAs<GeoJsonSource>(MARKERS)?.setGeoJson(markersOnMap())
     }
 
-    /** Distance and true bearing from the phone to a place, in words; null without a position. */
-    internal fun fromHere(lat: Double, lon: Double): String? {
+    /** Distance and true bearing from the phone to a place, in words; null without a position. `brief`: for one line of a list. */
+    internal fun fromHere(lat: Double, lon: Double, brief: Boolean = false): String? {
         val here = lastLocation() ?: return null
         val out = FloatArray(2)
         Location.distanceBetween(here.latitude, here.longitude, lat, lon, out)
@@ -725,7 +888,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             if (out[0] < 1000) "${out[0].toInt()} m" else String.format(Locale.US, "%.1f km", out[0] / 1000)
         }
-        return String.format(Locale.US, "%s from you, bearing %03d° true", far, bearing)
+        return String.format(Locale.US, if (brief) "%s, bearing %03d°" else "%s from you, bearing %03d° true", far, bearing)
     }
 
     private val saveFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/geo+json")) { uri ->
@@ -763,12 +926,17 @@ class MainActivity : AppCompatActivity() {
 
     /* ---------- the phone's position ---------- */
 
+    /** What asked for the location permission when it was not the position button. */
+    private var afterLocation: (() -> Unit)? = null
+
     private val askLocation = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        val then = afterLocation
+        afterLocation = null
         if (granted.values.any { it }) {
             style?.let(::startLocation)
-            if (locationOn) setFollow(Follow.NORTH)
+            if (then != null) then() else if (locationOn) setFollow(Follow.NORTH)
         } else {
-            toast("Without the location permission the map cannot show where you are.")
+            toast(if (then != null) "Without the location permission your position cannot be shared." else "Without the location permission the map cannot show where you are.")
         }
     }
 
@@ -912,6 +1080,8 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             if (follow != Follow.FREE) updateReadout()
             chooseHeadingSource()
+            sharing.tick()
+            panels.peerTick()
             // Every quarter of a minute, and more often right after opening while nothing answers.
             if (ticks % 15 == 0 || (ticks < 6 && !reachable)) probe()
             ticks++
@@ -940,6 +1110,8 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState); b.map.onSaveInstanceState(outState) }
 
     override fun onDestroy() {
+        // Closed for good: this phone's position goes from the box at once.
+        if (isFinishing) sharing.closing()
         scope.cancel()
         areas.onChange = {}
         areas.onSaved = {}
@@ -952,6 +1124,11 @@ class MainActivity : AppCompatActivity() {
         const val MARKERS = "fm-markers"
         const val MARKER_DOTS = "fm-markers-dot"
         const val MARKER_SELECTED = "fm-markers-selected"
+        const val PEERS = "fm-peers"
+        const val PEER_SYMBOLS = "fm-peers-symbol"
+        const val PEER_SELECTED = "fm-peers-selected"
+        const val PEER_FRESH = "fm-peer"
+        const val PEER_OLD = "fm-peer-old"
         /** How often, at home, the app asks whether the server's address from outside changed. */
         const val REMOTE_CHECK_MS = 600_000L
         /** How long a finger rests on the map to mark the spot. */

@@ -7,8 +7,11 @@ import io.github.sentinel6systems.fieldmap.remote.Enrolment
 import io.github.sentinel6systems.fieldmap.remote.endpointsFrom
 import io.github.sentinel6systems.fieldmap.remote.endpointsTo
 import org.json.JSONArray
+import org.json.JSONObject
 import io.github.sentinel6systems.fieldmap.server.MapStyle
 import io.github.sentinel6systems.fieldmap.server.TileServer
+import io.github.sentinel6systems.fieldmap.share.Pending
+import java.util.UUID
 
 /** What the app remembers between runs, all of it on the phone. */
 class Prefs(context: Context) {
@@ -55,5 +58,30 @@ class Prefs(context: Context) {
                 putString("remote.ca", v.ca); putString("remote.gateway", v.gatewayName)
                 putString("remote.endpoints", endpointsTo(v.endpoints).toString()); putString("remote.reach", v.reach)
             }
+        }
+
+    /** Tells this phone from the others on a box. Made once, at random; not a secret, and it says nothing about the phone. */
+    val uid: String
+        get() = p.getString("share.uid", null) ?: UUID.randomUUID().toString().also { p.edit { putString("share.uid", it) } }
+
+    /** The name this phone's position is shared under. */
+    var shareName: String
+        get() = p.getString("share.name", "").orEmpty()
+        set(v) = p.edit { putString("share.name", v) }
+
+    /** Sharing this phone's position: off until the person switches it on. */
+    var shareOn: Boolean
+        get() = p.getBoolean("share.on", false)
+        set(v) = p.edit { putBoolean("share.on", v) }
+
+    /** Changes to shared markers that the box has not heard yet. */
+    var pending: Pending
+        get() {
+            val deleted = try { JSONObject(p.getString("share.deleted", "{}").orEmpty()).let { o -> o.keys().asSequence().associateWith { o.optString(it) } } } catch (e: Exception) { emptyMap() }
+            return Pending(p.getStringSet("share.put", emptySet()).orEmpty().toSet(), deleted)
+        }
+        set(v) = p.edit {
+            putStringSet("share.put", v.put)
+            putString("share.deleted", JSONObject().apply { v.deleted.forEach { (id, at) -> put(id, at) } }.toString())
         }
 }

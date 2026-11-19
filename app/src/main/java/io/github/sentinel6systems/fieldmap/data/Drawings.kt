@@ -5,8 +5,14 @@ import org.json.JSONException
 import org.json.JSONObject
 import kotlin.math.abs
 
-/** A coloured dot with a name. */
-data class Marker(val id: String, val lat: Double, val lon: Double, val label: String, val color: String)
+/**
+ * A coloured dot with a name. A shared marker is also on the box, for everyone who reaches it:
+ * `updated` is when it was last changed (UTC, ISO 8601) and `by` the phone that changed it.
+ */
+data class Marker(
+    val id: String, val lat: Double, val lon: Double, val label: String, val color: String,
+    val shared: Boolean = false, val updated: String = "", val by: String = "",
+)
 
 /**
  * Markers to and from the drawings file of fieldmap-server's print tool (print/src/drawings.js):
@@ -20,16 +26,25 @@ object Drawings {
 
     class Loaded(val markers: List<Marker>, val skipped: Int)
 
-    fun toGeoJson(markers: List<Marker>): String {
-        val features = JSONArray()
-        for (m in markers) {
-            val fieldmap = JSONObject().put("kind", "marker").put("label", m.label).put("color", m.color).put("id", m.id)
-            features.put(
-                JSONObject().put("type", "Feature")
-                    .put("geometry", JSONObject().put("type", "Point").put("coordinates", JSONArray().put(m.lon).put(m.lat)))
-                    .put("properties", JSONObject().put("name", m.label).put("stroke", m.color).put("marker-color", m.color).put("fieldmap", fieldmap)),
-            )
+    /**
+     * One marker as a GeoJSON feature. sharing: also what belongs to a shared marker (the app's
+     * own file and the box get it; a file for the print tool or other software does not).
+     */
+    fun feature(m: Marker, sharing: Boolean = false): JSONObject {
+        val fieldmap = JSONObject().put("kind", "marker").put("label", m.label).put("color", m.color).put("id", m.id)
+        val properties = JSONObject().put("name", m.label).put("stroke", m.color).put("marker-color", m.color).put("fieldmap", fieldmap)
+        if (sharing && m.shared) {
+            fieldmap.put("shared", true)
+            properties.put("by", m.by).put("updated", m.updated)
         }
+        return JSONObject().put("type", "Feature")
+            .put("geometry", JSONObject().put("type", "Point").put("coordinates", JSONArray().put(m.lon).put(m.lat)))
+            .put("properties", properties)
+    }
+
+    fun toGeoJson(markers: List<Marker>, sharing: Boolean = false): String {
+        val features = JSONArray()
+        for (m in markers) features.put(feature(m, sharing))
         return JSONObject().put("type", "FeatureCollection")
             .put("fieldmap", JSONObject().put("format", FORMAT).put("version", 1))
             .put("features", features).toString()
@@ -63,8 +78,11 @@ object Drawings {
                 .trim().take(MAX_LABEL)
             val id = (fm?.opt("id") as? String)?.takeIf { it.isNotBlank() }
             val coords = g?.optJSONArray("coordinates")
+            val shared = fm?.optBoolean("shared") == true
             when (g?.optString("type")) {
-                "Point" -> point(coords)?.let { markers += Marker(id ?: newId(), it.first, it.second, name, color) } ?: skipped++
+                "Point" -> point(coords)?.let {
+                    markers += Marker(id ?: newId(), it.first, it.second, name, color, shared, if (shared) p.optString("updated") else "", if (shared) p.optString("by") else "")
+                } ?: skipped++
                 "MultiPoint" -> for (i in 0 until (coords?.length() ?: 0)) {
                     point(coords?.optJSONArray(i))?.let { markers += Marker(newId(), it.first, it.second, name, color) } ?: skipped++
                 }
