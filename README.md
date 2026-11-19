@@ -15,7 +15,8 @@ and use it with gloves. It shows your position. It does not give turn-by-turn di
   tiles of each layer, the style, the fonts and the symbols.
 - **Your position**: the GPS position of the device on the map. One button follows your position, with north up
   or with your direction up. The top of the screen always shows your GPS position and its accuracy. Choose
-  the format in **Menu › Settings**: MGRS grid, decimal degrees, or degrees, minutes and seconds.
+  the format in **Menu › Settings**: MGRS grid, UTM, decimal degrees, or degrees, minutes and
+  seconds.
 - **Markers**: touch and hold the map for 2 seconds to add a marker. Give it a name and one of 12
   colours. The **Print a map** page of the box uses the same markers. A file moves them between the two.
 - **Remote access**: pair the device with the box one time, on the box's network. After that, the app connects to

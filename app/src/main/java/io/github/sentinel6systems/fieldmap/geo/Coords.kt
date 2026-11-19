@@ -2,11 +2,13 @@ package io.github.sentinel6systems.fieldmap.geo
 
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.roundToLong
 
 /** The ways the app writes a position. The person chooses one in Menu › Settings. */
 enum class CoordFormat(val title: String) {
     MGRS("MGRS grid"),
+    UTM("UTM"),
     DECIMAL("Decimal degrees"),
     DMS("Degrees, minutes, seconds"),
 }
@@ -14,12 +16,20 @@ enum class CoordFormat(val title: String) {
 object Coords {
     /**
      * A position in the chosen format. `brief` is for lists: MGRS to 10 m and whole seconds.
-     * Where MGRS has no grid (near the poles), decimal degrees.
+     * Where MGRS and UTM have no grid (near the poles), decimal degrees.
      */
     fun text(lat: Double, lon: Double, format: CoordFormat, brief: Boolean = false): String = when (format) {
         CoordFormat.MGRS -> Utm.toMgrs(lat, lon, if (brief) 4 else 5) ?: decimal(lat, lon)
+        CoordFormat.UTM -> utm(lat, lon) ?: decimal(lat, lon)
         CoordFormat.DECIMAL -> decimal(lat, lon)
         CoordFormat.DMS -> "${dms(lat, 'N', 'S', brief)} ${dms(lon, 'E', 'W', brief)}"
+    }
+
+    /** 14T 421184E 4983436N: zone and band, then whole metres cut down, as MGRS cuts its digits. */
+    private fun utm(lat: Double, lon: Double): String? {
+        if (lat < -80 || lat >= 84 || abs(lon) > 180) return null
+        val u = Utm.toUtm(lat, lon)
+        return "${u.zone}${Utm.bandFor(lat)} ${floor(u.easting).toLong()}E ${floor(u.northing).toLong()}N"
     }
 
     private fun decimal(lat: Double, lon: Double) = String.format(Locale.US, "%.5f, %.5f", lat, lon)
