@@ -295,15 +295,15 @@ class MainActivity : AppCompatActivity() {
         val other = saved.firstOrNull { centre != null && it.bounds?.contains(centre) == true } ?: saved.firstOrNull()
         if (other != null) {
             val name = prefs.styles.firstOrNull { it.url == url }?.name ?: "This map style"
-            toast("$name is not saved on this phone. Showing ${other.styleName.ifEmpty { "a saved map" }}.")
+            toast("$name is not saved on this device. Showing ${other.styleName.ifEmpty { "a saved map" }}.")
             showStyle(other.styleUrl)
             return
         }
         pendingStyle = null
         showStyle(null)
         notice(
-            if (areas.list.isEmpty()) "The server is out of reach and no map area is saved on this phone yet.\n\nOn the server's network: Menu, Saved areas, Save a new area."
-            else "This map style is not saved on the phone. Choose a saved area under Menu, Saved areas.",
+            if (areas.list.isEmpty()) "The server is out of reach and no map area is saved on this device yet.\n\nOn the server's network: Menu, Saved areas, Save a new area."
+            else "This map style is not saved on the device. Choose a saved area under Menu, Saved areas.",
         )
     }
 
@@ -548,7 +548,7 @@ class MainActivity : AppCompatActivity() {
                     val answer = TileServer.status("${base}styles.json", 6000, Route.REMOTE)
                     if (answer == 403 && base == prefs.server) {
                         removeRemote()
-                        toast("The box no longer lets this phone in from outside. Pair it again on the box's network.")
+                        toast("The box no longer lets this device in from outside. Pair it again on the box's network.")
                         break
                     }
                     if (answer == 401) {
@@ -823,7 +823,7 @@ class MainActivity : AppCompatActivity() {
         val now = open?.let { markers.get(it.id) }
         if (open != null && now == null) {
             panels.back()
-            toast("${open.label.ifEmpty { "This marker" }} was deleted on another phone.")
+            toast("${open.label.ifEmpty { "This marker" }} was deleted on another device.")
         } else if (open != null && now != open.copy(updated = now?.updated.orEmpty(), by = now?.by.orEmpty())) {
             panels.rebuild(Screen.MARKER)
         }

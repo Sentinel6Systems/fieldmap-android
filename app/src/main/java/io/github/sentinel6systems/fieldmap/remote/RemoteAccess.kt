@@ -111,7 +111,7 @@ object RemoteAccess {
                 }
             } catch (e: Exception) { /* try the next place */ }
         }
-        throw last ?: Refused("The box did not answer. A phone is paired on the box's own network.")
+        throw last ?: Refused("The box did not answer. A device is paired on the box's own network.")
     }
 
     /** The phone's key, made the first time it is asked for. */

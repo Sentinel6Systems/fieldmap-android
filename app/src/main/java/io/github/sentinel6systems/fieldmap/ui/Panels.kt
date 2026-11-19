@@ -169,7 +169,7 @@ class Panels(private val a: MainActivity) {
     private fun menu() {
         val saved = a.areas.list
         add(a.row("Map style", a.shownStyleName() ?: "None") { show(Screen.STYLES) })
-        add(a.row("Saved areas", if (saved.isEmpty()) "None yet" else "${saved.size} on this phone, ${bytesText(a.areas.storedBytes())} used") { show(Screen.AREAS) })
+        add(a.row("Saved areas", if (saved.isEmpty()) "None yet" else "${saved.size} on this device, ${bytesText(a.areas.storedBytes())} used") { show(Screen.AREAS) })
         add(a.row("Markers", if (a.markers.markers.isEmpty()) "None yet" else "${a.markers.markers.size}") { show(Screen.MARKERS) })
         add(a.row("Sharing", a.sharing.summary()) { show(Screen.SHARING) })
         add(a.row("Server", a.prefs.server?.let { ServerAddress.short(it) + if (a.reachable) " · connected" else " · out of reach" } ?: "Not set") { show(Screen.SERVER) })
@@ -191,7 +191,7 @@ class Panels(private val a: MainActivity) {
         val current = a.currentStyle()
         for (style in all) {
             val saved = a.areas.list.count { it.styleUrl == style.url }
-            val detail = if (saved > 0) "$saved saved area${if (saved == 1) "" else "s"}" else if (!a.reachable) "Not saved on this phone" else null
+            val detail = if (saved > 0) "$saved saved area${if (saved == 1) "" else "s"}" else if (!a.reachable) "Not saved on this device" else null
             add(a.row(style.name, detail, icon = if (style.id == current?.id) R.drawable.ic_check else null) { a.chooseStyle(style) }
                 .apply { if (style.id != current?.id && saved == 0 && !a.reachable) alpha = 0.55f })
         }
@@ -207,7 +207,7 @@ class Panels(private val a: MainActivity) {
             add(a.body("No saved areas yet. A saved area has everything the map needs, so it works with no network at all.", muted = true, top = 14))
             return
         }
-        add(a.label("On this phone"))
+        add(a.label("On this device"))
         for (area in a.areas.list) add(areaCard(area))
         add(a.label("Refresh"))
         add(a.body("For after the maps on the server were rebuilt: downloads every saved area again.", muted = true))
@@ -243,7 +243,7 @@ class Panels(private val a: MainActivity) {
     private fun confirmDelete(area: SavedArea) {
         AlertDialog.Builder(a)
             .setTitle("Delete \"${area.name}\"?")
-            .setMessage("The maps of this area are removed from the phone.")
+            .setMessage("The maps of this area are removed from the device.")
             .setNegativeButton("Keep", null)
             .setPositiveButton("Delete") { _, _ -> a.areas.delete(area) }
             .show()
@@ -286,7 +286,7 @@ class Panels(private val a: MainActivity) {
             say("${number(tiles)} map tiles. Working out the size…")
             val bytes = Estimate.bytes(list, box)
             val free = a.filesDir.usableSpace
-            val line = "About ${bytesText(bytes)} · ${number(tiles)} map tiles\n${bytesText(free)} free on this phone"
+            val line = "About ${bytesText(bytes)} · ${number(tiles)} map tiles\n${bytesText(free)} free on this device"
             when {
                 bytes > free - Areas.KEEP_FREE_BYTES -> say("$line\nNot enough room. Choose a smaller area.", R.color.warn)
                 bytes > Areas.LARGE_BYTES -> say("$line\nThis is a large download.", R.color.amber, ok = true)
@@ -372,9 +372,9 @@ class Panels(private val a: MainActivity) {
     }
 
     private fun shareDetail(m: Marker): String = when {
-        !m.shared -> "Off: this marker is on this phone only."
+        !m.shared -> "Off: this marker is on this device only."
         a.sharing.waiting(m.id) -> "Waiting to be sent to the box."
-        else -> "Everyone who reaches the box sees it and can change or delete it. Unticking takes it off the box, not off this phone."
+        else -> "Everyone who reaches the box sees it and can change or delete it. Unticking takes it off the box, not off this device."
     }
 
     private fun confirmDeleteShared(id: String) {
@@ -513,27 +513,27 @@ class Panels(private val a: MainActivity) {
         if (mine == null && info?.ready != true) return
         box.addView(a.label("Away from this network"))
         if (info?.enabled == false || (info == null && a.remoteSwitchedOff)) {
-            box.addView(a.body("Remote access is switched off on the box, on its Phones page. " +
-                (if (mine != null) "This phone stays paired for when it is switched on again." else "Switching it on there also opens pairing for this phone."), muted = true))
+            box.addView(a.body("Remote access is switched off on the box, on its Devices page. " +
+                (if (mine != null) "This device stays paired for when it is switched on again." else "Switching it on there also opens pairing for this device."), muted = true))
             return
         }
         if (mine != null) {
             // The box's own words about being reached from outside: fresh at home, as last heard away.
             val reach = info?.reach?.ifEmpty { null } ?: mine.reach
             box.addView(a.body(when {
-                a.remoteNow -> "This phone is paired and reaches the box from outside now."
-                a.reachable -> "This phone is paired. Away from this network it reaches the box by itself where the box can be reached."
-                else -> "This phone is paired, but the box does not answer from here. If the box's address changed since this phone was last home, the phone learns the new one there."
+                a.remoteNow -> "This device is paired and reaches the box from outside now."
+                a.reachable -> "This device is paired. Away from this network it reaches the box by itself where the box can be reached."
+                else -> "This device is paired, but the box does not answer from here. If the box's address changed since this device was last home, the device learns the new one there."
             }, muted = true))
             if (reach.isNotEmpty()) box.addView(a.body("The box says: $reach", muted = true, top = 8))
-            box.addView(a.button("Unpair this phone", Kind.DANGER) { a.removeRemote(); remoteSection(info) }.apply { layoutParams = lp(top = a.dp(10)) })
+            box.addView(a.button("Unpair this device", Kind.DANGER) { a.removeRemote(); remoteSection(info) }.apply { layoutParams = lp(top = a.dp(10)) })
             return
         }
-        box.addView(a.body("Pair this phone to use the box's maps from anywhere, also away from this network. " +
-            (if (info?.pairingOpen == true) "Pairing is open on the box now." else "First press Pair a phone on the box's Phones page."), muted = true))
+        box.addView(a.body("Pair this device to use the box's maps from anywhere, also away from this network. " +
+            (if (info?.pairingOpen == true) "Pairing is open on the box now." else "First press Pair a device on the box's Devices page."), muted = true))
         val code = if (info?.pin == true) a.field("The box's code", "", max = 64) { hideKeyboard() }.apply { layoutParams = lp(top = a.dp(10)) }.also(box::addView) else null
         val said = a.body("", top = 8).apply { setTextColor(a.color(R.color.warn)); visibility = View.GONE }
-        val button = a.button("Pair this phone", Kind.PRIMARY) {}
+        val button = a.button("Pair this device", Kind.PRIMARY) {}
         button.setOnClickListener {
             hideKeyboard()
             button.enable(false)
@@ -565,7 +565,7 @@ class Panels(private val a: MainActivity) {
         a.scope.launch {
             val found = TileServer.connect(typed)
             if (screen != Screen.SERVER) return@launch
-            if (found == null) failed("No tile server answered there. Check the address, and that this phone is on the same network.")
+            if (found == null) failed("No tile server answered there. Check the address, and that this device is on the same network.")
             else { serverBusy = false; a.useServer(found) }
         }
     }
@@ -578,7 +578,7 @@ class Panels(private val a: MainActivity) {
             val result = Finder.find()
             if (screen != Screen.SERVER) return@launch
             when {
-                !result.searched -> failed("This phone is not on a Wi-Fi network. Join the server's network, or type its address.")
+                !result.searched -> failed("This device is not on a Wi-Fi network. Join the server's network, or type its address.")
                 result.found.isEmpty() -> failed("No tile server found on this network. Type its address instead.")
                 result.found.size == 1 -> { serverBusy = false; a.useServer(result.found[0]) }
                 else -> {

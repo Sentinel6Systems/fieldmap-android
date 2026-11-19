@@ -2,26 +2,26 @@
 
 Fieldmap is a small Android map app for the maps of a [fieldmap-server](https://github.com/Sentinel6Systems/fieldmap-server)
 box. At home, on the box's network, you look at its maps and save the areas you need. Away from it, with no
-network at all, the phone shows those areas with your GPS position on them, and you can drop coloured dot
+network at all, your phone or tablet shows those areas with your GPS position on them, and you can drop coloured dot
 markers on what you find.
 
 It is meant for driving, hiking and scouting: one map, a few large buttons, readable in sunlight and usable
 with gloves. It is not a route planner: it shows where you are, it does not give turn-by-turn directions.
 
 - **The maps of your box**: every style the tile server offers (topographic light and dark, OpenStreetMap, ...),
-  drawn on the phone from vector tiles, so they stay sharp at any zoom.
+  drawn on the device from vector tiles, so they stay sharp at any zoom.
 - **Saved areas**: frame an area, see about how large the download is, press Download. Everything the map needs
   comes along: the tiles of every layer (base map, contours, hillshade), the style, the fonts and the symbols.
-- **Where you are**: the phone's GPS position on the map, with one button to follow it north-up or
+- **Where you are**: the device's GPS position on the map, with one button to follow it north-up or
   heading-up. The grid reference (MGRS) and latitude/longitude are always at the top.
 - **Markers**: hold a finger on a spot for two seconds and it is marked. Name the dot and pick one of twelve
   colours. They are the markers of the box's print tool, and the two can exchange them as a file.
-- **Away from home, while there is internet**: pair the phone with the box once, at home, with one button. From
+- **Away from home, while there is internet**: pair the device with the box once, at home, with one button. From
   then on the app reaches the box from anywhere, through the box's own router, over an encrypted link that only
-  paired phones can use. No account, nothing of anyone else's in between.
-- **Sharing with the other phones of the box**: switch it on and the others see where you are, by the name you
-  give, also while the phone is in your pocket; tick a marker and everyone has it. Off until you switch it on,
-  and only between phones that reach the same box. No account for this either.
+  paired devices can use. No account, nothing of anyone else's in between.
+- **Sharing with the other devices of the box**: switch it on and the others see where you are, by the name you
+  give, also while the device is in your pocket; tick a marker and everyone has it. Off until you switch it on,
+  and only between devices that reach the same box. No account for this either.
 - **Nothing else**: no account, no advertising, no analytics. The app talks only to the server you give it.
 
 It works with any [TileServer GL](https://github.com/maptiler/tileserver-gl) server that offers vector styles;
@@ -38,7 +38,7 @@ makes, with a cable:
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-or copy the `.apk` file to the phone and open it there (Android asks once whether to allow installing from
+or copy the `.apk` file to the device and open it there (Android asks once whether to allow installing from
 that source).
 
 ## Build
@@ -106,39 +106,39 @@ and how far and in which direction it is from you. The screen stays on while the
 
 ### Away from home: pairing
 
-A fieldmap-server box lets phones that were paired on its own network use its maps from anywhere (its README,
+A fieldmap-server box lets devices that were paired on its own network use its maps from anywhere (its README,
 "Remote access for the Android app"). It is off until the box's owner switches it on. At home, on the box's
 network:
 
-1. On the box's **Phones** page (a tab in the header of its Maps page), press **Switch on**, or, if it is already
-   on, **Pair a phone**. Either opens pairing for ten minutes.
-2. In the app: **Menu › Server › Pair this phone**.
+1. On the box's **Devices** page (a tab in the header of its Maps page), press **Switch on**, or, if it is already
+   on, **Pair a device**. Either opens pairing for ten minutes.
+2. In the app: **Menu › Server › Pair this device**.
 
 That is all. Away from the box's network the strip at the top reads **Remote** instead of **Connected**, and the
 map loads as at home, only slower. With no internet it reads **Offline** and the saved areas work as before.
 
-What happens: the app makes a key in the phone's key store, where it cannot be read out again, and the box gives
+What happens: the app makes a key in the device's key store, where it cannot be read out again, and the box gives
 it a certificate for that key, the addresses it can be reached at from outside, and the name in its gateway's
 certificate. Away from home the app tries those addresses, the one that answered last first, and trusts only the
-box's own certificate there. Whenever the phone is home again it picks up any new address. The box is told the
-phone's make and model, so that its owner can tell the phones on its list apart.
+box's own certificate there. Whenever the device is home again it picks up any new address. The box is told the
+device's make and model, so that its owner can tell the devices on its list apart.
 
-On the box's Phones page its owner can remove a phone (the app then says so the next time it tries from outside,
+On the box's Devices page its owner can remove a device (the app then says so the next time it tries from outside,
 and it can be paired again at home), or switch remote access off altogether (the app says so, and stays paired
-for when it is switched on again). **Unpair this phone** in the app forgets the pairing on the phone.
+for when it is switched on again). **Unpair this device** in the app forgets the pairing on the device.
 
 Whether the box can be reached from outside depends on its router and internet provider; the Server panel shows
-what the box says about it. This is not a system VPN: nothing else on the phone uses it, no VPN icon appears, and
-another VPN on the phone keeps working.
+what the box says about it. This is not a system VPN: nothing else on the device uses it, no VPN icon appears, and
+another VPN on the device keeps working.
 
-### Sharing with other phones
+### Sharing with other devices
 
-Phones that reach the same fieldmap-server box can show each other where they are and keep one set of markers
+Devices that reach the same fieldmap-server box can show each other where they are and keep one set of markers
 in common. It goes through the box: at home over its network, away from home through the pairing above. There
 is nothing more to sign in to. Everyone who reaches the box sees everything that is shared on it.
 
 Sharing is a feature of the box, and it is off there until the box's owner switches it on, on the box's
-**Phones** page. While it is off the app says "Sharing is switched off on the box".
+**Devices** page. While it is off the app says "Sharing is switched off on the box".
 
 **Your position.** It is not shared until you switch that on: **Menu › Sharing**, type the name the others
 should see you by (up to 24 characters), press **Share my position**. The strip at the top then shows a
@@ -160,12 +160,12 @@ does as little as it can:
 
 - on the move it takes and sends a position about three times a minute, at rest once a minute; in between,
   Android switches the satellite receiver off
-- at rest it leaves it to the phone's motion sensor, which costs next to nothing, to say when you set off again
+- at rest it leaves it to the device's motion sensor, which costs next to nothing, to say when you set off again
 - it only sends; it does not ask who else is there, or for markers, until you look at the map again
-- it holds the phone awake only for the seconds a message takes
+- it holds the device awake only for the seconds a message takes
 
-The others see a phone that rests as live for a minute and a half without news, and one on the move for half
-a minute; after that it turns grey. Android may still end the sharing by itself, on a phone that is very short
+The others see a device that rests as live for a minute and a half without news, and one on the move for half
+a minute; after that it turns grey. Android may still end the sharing by itself, on a device that is very short
 of memory or has lain still for hours in its deepest sleep; your position then turns grey on the others' maps
 and goes after two minutes, and sharing starts again when you open the app.
 
@@ -175,10 +175,10 @@ when the box drops the position, it goes from the map. Tap a diamond for the nam
 updated, its grid reference, and how far and in which direction it is from you. **Menu › Sharing** lists
 everyone who is there now. You see the others whether or not you share your own position.
 
-**Shared markers.** A marker is on your phone only, until you tick **Share with everyone on this box** in its
+**Shared markers.** A marker is on your device only, until you tick **Share with everyone on this box** in its
 panel. Then everyone has it, and anyone can rename, recolour, move or delete it: the last change wins.
-Unticking takes it off the box for everyone and keeps it on your phone. Deleting a shared marker deletes it for
-everyone (the app asks first). Shared markers are kept on the phone, so they are still on the map with no
+Unticking takes it off the box for everyone and keeps it on your device. Deleting a shared marker deletes it for
+everyone (the app asks first). Shared markers are kept on the device, so they are still on the map with no
 network. Changes you make to them out of reach are sent when the box answers again; if somebody else changed the
 same marker in the meantime, the later change stays.
 
@@ -198,12 +198,12 @@ shows markers only.
   to zoom 14. A small area of 1 m hillshade above that (fieldmap-server's `hillshade-detail`) is not saved.
 - The size shown before a download is an estimate: the app counts the tiles and measures a sample of them on
   the box. Towns are heavier than empty country, so the real size differs somewhat.
-- A download that would not leave 500 MB free on the phone is refused, and so is an area of more than 200,000
+- A download that would not leave 500 MB free on the device is refused, and so is an area of more than 200,000
   tiles (save it as several areas). Above 1 GB the app says that the download is large.
 - Maps you only looked at are kept too (up to 200 MB, the oldest dropped first), so the neighbourhood of what
   you browsed at home often works without having been saved. Do not rely on it: save what you need.
 - **Update all saved areas** downloads every saved area again, for after the maps on the box were rebuilt.
-  (One area cannot be refreshed alone: areas share their files, and a file that is already on the phone counts
+  (One area cannot be refreshed alone: areas share their files, and a file that is already on the device counts
   as done.) Deleting an area frees its space, and also drops the maps that were only looked at.
 - Saved areas remember the address they came from. If the box gets another address, they still work, and
   new areas are saved from the new address.
@@ -213,17 +213,17 @@ shows markers only.
 
 | Permission | Why |
 |---|---|
-| Location | To show where you are. Asked the first time you press Follow. The position stays on the phone, unless you switch on sharing it: then it goes to your box, and from there to the phones that reach it, until you stop sharing or close the app. The app asks only for the position "while the app is in use"; it does not ask for "all the time". |
+| Location | To show where you are. Asked the first time you press Follow. The position stays on the device, unless you switch on sharing it: then it goes to your box, and from there to the devices that reach it, until you stop sharing or close the app. The app asks only for the position "while the app is in use"; it does not ask for "all the time". |
 | Notifications | For the one notification that says your position is being shared. Asked when you switch sharing on (Android 13 and later). Without it sharing works the same; Android then shows it only in its list of running apps. |
 | Run in the background, with location | The same thing: what keeps a shared position going while the app is not on the screen. Only while sharing is on. |
-| Keep the phone awake | For the few seconds a position takes to send from the background. |
+| Keep the device awake | For the few seconds a position takes to send from the background. |
 | Network | To reach the tile server you set. Plain `http` is allowed, because a box on a home network has no certificate. |
 
 A box with its own Wi-Fi often has no internet behind it, and Android then keeps sending the apps' traffic over
-mobile data, where the box cannot be found. When the server does not answer the usual way and the phone is on
+mobile data, where the box cannot be found. When the server does not answer the usual way and the device is on
 such a network, the app talks to it over that network directly. Nothing has to be set for this.
 
-**Find on this network** asks each of the up to 254 neighbouring addresses of the phone's Wi-Fi network whether
+**Find on this network** asks each of the up to 254 neighbouring addresses of the device's Wi-Fi network whether
 a tile server answers there (web port, then port 8080). It runs only when you press the button, and only on a
 private network.
 
@@ -233,7 +233,7 @@ Version 0.1.0 was tested on an Android 14 emulator against a fieldmap-server til
 with sample data of a small country:
 
 - finding the server on the network and connecting by a typed address; the styles
-- saving areas of up to 27,800 tiles, checked in the phone's database: the tile counts matched the app's count
+- saving areas of up to 27,800 tiles, checked in the device's database: the tile counts matched the app's count
   exactly, and for the larger areas the size was within a quarter of the estimate
 - a download cut off by closing the app, which carried on at the next start; deleting; updating all areas
 - the map with the network switched off and the server stopped
@@ -246,22 +246,23 @@ It was then put on a Google Pixel phone (Android 16) and checked by hand and ove
   rough one; the app let go of the receiver when it left the screen
 - following, heading-up by the compass, and marking by holding the map
 - connecting to a fieldmap-server box behind Internet-in-a-Box (`/maps/`) over Wi-Fi, and saving an area from it
-  in the `topo-usgs` style: the 120 tiles the app counted were the 120 in the phone's database, from all five
+  in the `topo-usgs` style: the 120 tiles the app counted were the 120 in the device's database, from all five
   tile sets of the style
 
 Pairing and the remote link were tested on the emulator against fieldmap-server's gateway: pairing refused while
-closed and done in one press once opened on the box's Phones page, the switch to **Remote** when the home address
-went away, a phone removed on the box being told so, remote access switched off and on again (the phone stays
-paired). Not tested yet: through a real home router, and on a real phone.
+closed and done in one press once opened on the box's Devices page, the switch to **Remote** when the home address
+went away, a device removed on the box being told so, remote access switched off and on again (the device stays
+paired). The remote link was later confirmed by hand from outside, through a home router, with the Pixel and a
+box behind Internet-in-a-Box.
 
 Sharing was tested on the emulator against fieldmap-server's sharing service, on its home address and through
-its gateway, with a second phone played by a script:
+its gateway, with a second device played by a script:
 
 - switching the position on (the name, the tag in the strip) and off (gone from the box at once), closing the
   app for good (gone at once), leaving the app (the position stays and ages), opening it again (still on)
 - the others on the map and in the list, tapping one, a position turning grey and going after two minutes
 - sharing a marker, renaming it (one message to the box after the typing stops), changes and a delete made by
-  the other phone arriving, also while the marker's panel was open; taking a marker back; deleting a shared one
+  the other device arriving, also while the marker's panel was open; taking a marker back; deleting a shared one
 - out of reach: a shared marker renamed, one deleted and a new one shared, all sent when the box answered again;
   the same marker changed on both sides, where the later change stayed, either way round
 - sharing switched off on the box (the app says so and asks again once a minute) and on again
@@ -282,12 +283,12 @@ Sharing in the background was tested on the emulator:
 - the notification, and Android's question about notifications when sharing is switched on
 - in the background, the home address going away (sharing moved to the gateway by itself) and coming back
   while the gateway did not answer (it moved home again)
-- on another phone's map: a phone at rest still shown as live after 48 seconds without news, one on the move
+- on another device's map: a device at rest still shown as live after 48 seconds without news, one on the move
   shown grey
 
-Not tested yet for sharing: the background on a real phone (the battery it really costs, the motion sensor, a
-night with the phone lying still, the phone makers' own battery savers), a link that comes and goes, and many
-phones at once.
+Not tested yet for sharing: the background on a real device (the battery it really costs, the motion sensor, a
+night with the device lying still, the device makers' own battery savers), a link that comes and goes, and many
+devices at once.
 
 The unit tests cover the grid references (against the print tool's own results), the markers file, address
 handling, tile counting, and sharing: what is sent and read, bringing shared markers together (changed since
@@ -295,19 +296,19 @@ the last answer, the whole list, removed ones, the last change winning), how a p
 background and telling rest from movement.
 
 Not tested yet: a box whose Wi-Fi has no internet, a download of several gigabytes, a long drive or hike, and
-phones without Google services.
+devices without Google services.
 
 ## What is next
 
 Not built yet, in no fixed order:
 
-- **Sharing that starts by itself** after the phone was restarted, or after Android ended it. Today you open the
+- **Sharing that starts by itself** after the device was restarted, or after Android ended it. Today you open the
   app once. Starting from nothing needs Android's permission for location "all the time".
-- **A position that says when the next one is due.** Today the others tell a resting phone by the speed it
+- **A position that says when the next one is due.** Today the others tell a resting device by the speed it
   reports; the box's interface could carry it outright.
 - **Downloads in the background.**
 - **Groups.** One box is one room: everyone who reaches it sees everyone.
-- **Messages** between the phones.
+- **Messages** between the devices.
 - **TAK compatibility** (CoT). The app and the box talk their own small JSON; ATAK and other TAK apps cannot
   join in.
 
@@ -317,7 +318,7 @@ Not built yet, in no fixed order:
 |---|---|
 | `app/src/main/java/.../ui/` | The one screen (`MainActivity`), its panels (`Panels`), the rounds of live sharing (`Sharing`), and the pieces they are built from (`Ui`, `Views`) |
 | `.../server/` | Talking to the tile server: its styles, its tile sets, finding it on the network, and which way requests travel (`Http`) |
-| `.../remote/` | Pairing: the phone's key, being let in by the box, its addresses, the connection to its gateway |
+| `.../remote/` | Pairing: the device's key, being let in by the box, its addresses, the connection to its gateway |
 | `.../offline/` | Saved areas on top of MapLibre's offline regions; counting tiles and estimating sizes |
 | `.../data/` | Markers and their file format |
 | `.../share/` | Live sharing: what is sent to and read from the box's `/mapshare/` service, bringing shared markers together (last change wins), how a position ages, and the service that keeps the position shared in the background (`ShareService`) |

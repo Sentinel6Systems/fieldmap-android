@@ -87,6 +87,7 @@ class ShareService : Service() {
         instance = this
     }
 
+    @SuppressLint("InlinedApi")                 // the kind of service is a plain number, and older Androids take no notice of it
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) {
             // "Stop sharing" on the notification: as the button in the app.
@@ -272,7 +273,7 @@ class ShareService : Service() {
     private fun notification(): Notification {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Sharing your position", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Shown for as long as this phone's position is shared with the others on your box."
+            description = "Shown for as long as this device's position is shared with the others on your box."
             setShowBadge(false)
         })
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)

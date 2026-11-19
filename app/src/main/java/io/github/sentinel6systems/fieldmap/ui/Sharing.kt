@@ -211,7 +211,7 @@ class Sharing(private val a: MainActivity) {
         peers = emptyList()
         sentAt = 0
         rev = null
-        if (!saidOff && (on || !a.prefs.pending.empty)) a.toast("Sharing is switched off on the box. Switch it on on the box's Phones page.")
+        if (!saidOff && (on || !a.prefs.pending.empty)) a.toast("Sharing is switched off on the box. Switch it on on the box's Devices page.")
         saidOff = true
     }
 
@@ -259,7 +259,7 @@ class Sharing(private val a: MainActivity) {
                     a.prefs.pending = p.copy(put = p.put - id)
                     a.sharedMarkers(a.markers.markers.map { if (it.id == id) it.copy(shared = false, updated = "", by = "") else it })
                     val why = try { JSONObject(r.body).optString("error") } catch (e: JSONException) { "" }
-                    a.toast("The box did not take the marker ${m.label.ifEmpty { "(no name)" }}: it stays on this phone only." + if (why.isEmpty()) "" else " The box says: $why")
+                    a.toast("The box did not take the marker ${m.label.ifEmpty { "(no name)" }}: it stays on this device only." + if (why.isEmpty()) "" else " The box says: $why")
                 }
                 else -> return trouble(r) ?: info.interval * 1000L
             }
@@ -294,9 +294,9 @@ class Sharing(private val a: MainActivity) {
     fun about(): String = when {
         a.prefs.server == null -> "Sharing goes through a fieldmap-server box. Connect to one first, under Menu, Server."
         box == Box.NONE -> "This server has no sharing. A fieldmap-server box with sharing is needed."
-        box == Box.OFF -> "Sharing is switched off on the box. Switch it on on the box's Phones page."
-        !a.reachable -> "The box is out of reach now. Shared markers stay on this phone, and changes to them are sent when the box answers again."
-        else -> "Phones that reach this box, at home or from outside, can show each other where they are and share markers."
+        box == Box.OFF -> "Sharing is switched off on the box. Switch it on on the box's Devices page."
+        !a.reachable -> "The box is out of reach now. Shared markers stay on this device, and changes to them are sent when the box answers again."
+        else -> "Devices that reach this box, at home or from outside, can show each other where they are and share markers."
     }
 
     /** How it stands with this phone's own position, while sharing it is on. */
