@@ -855,8 +855,12 @@ class MainActivity : AppCompatActivity() {
         style?.getLayerAs<CircleLayer>(PEER_SELECTED)?.setFilter(peerFilter())
     }
 
-    /** Android 13 and later ask before an app may show a notification. Sharing goes on either way. */
-    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    /**
+     * Android 13 and later ask before an app may show a notification. Sharing goes on either
+     * way; once allowed, the notification that says so is put up again, to be seen.
+     */
+    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { allowed -> if (allowed) keepSharing() }
+    private var notifyAsked = false
 
     /**
      * Has the position kept shared when the app leaves the screen. Only once the position
@@ -865,6 +869,13 @@ class MainActivity : AppCompatActivity() {
     private fun keepSharing() {
         if (!sharing.on || !mayLocate()) return
         ShareService.start(this)
+        // The notification that says sharing is on needs its own permission on newer Androids.
+        // Asked while it is missing, once each time the app is opened: also where sharing was
+        // on already, from before the app had this notification.
+        if (!notifyAsked && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notifyAsked = true
+            askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     /** Closes the app for good: the position goes from the others' maps, and nothing runs on. */
@@ -878,11 +889,9 @@ class MainActivity : AppCompatActivity() {
         val go = {
             sharing.switchOn(name)
             panels.rebuild(Screen.SHARING)
+            // Switched on by hand: worth asking about the notification again.
+            notifyAsked = false
             keepSharing()
-            // The notification that says sharing is on needs its own permission on newer phones.
-            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
         }
         if (mayLocate()) {
             if (!locationOn) style?.let(::startLocation)

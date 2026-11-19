@@ -215,7 +215,7 @@ shows markers only.
 | Permission | Why |
 |---|---|
 | Location | To show where you are. Asked the first time you press Follow. The position stays on the device, unless you switch on sharing it: then it goes to your box, and from there to the devices that reach it, until you stop sharing or close the app. The app asks only for the position "while the app is in use"; it does not ask for "all the time". |
-| Notifications | For the one notification that says your position is being shared. Asked when you switch sharing on (Android 13 and later). Without it sharing works the same; Android then shows it only in its list of running apps. |
+| Notifications | For the one notification that says your position is being shared. Asked when you switch sharing on, and when the app is opened with sharing on, for as long as it is not allowed (Android 13 and later). Without it sharing works the same; Android then shows it only in its list of running apps. |
 | Run in the background, with location | The same thing: what keeps a shared position going while the app is not on the screen. Only while sharing is on. |
 | Keep the device awake | For the few seconds a position takes to send from the background. |
 | Network | To reach the tile server you set. Plain `http` is allowed, because a box on a home network has no certificate. |
