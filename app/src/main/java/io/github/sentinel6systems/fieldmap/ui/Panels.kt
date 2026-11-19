@@ -16,7 +16,8 @@ import io.github.sentinel6systems.fieldmap.R
 import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.Palette
-import io.github.sentinel6systems.fieldmap.geo.Utm
+import io.github.sentinel6systems.fieldmap.geo.CoordFormat
+import io.github.sentinel6systems.fieldmap.geo.Coords
 import io.github.sentinel6systems.fieldmap.offline.Areas
 import io.github.sentinel6systems.fieldmap.remote.RemoteAccess
 import io.github.sentinel6systems.fieldmap.remote.RemoteInfo
@@ -38,7 +39,6 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.text.NumberFormat
 import java.util.Date
-import java.util.Locale
 
 /** What the panel shows. `parent` is where its Back arrow leads. */
 enum class Screen(val title: String, val parent: Screen?) {
@@ -53,6 +53,7 @@ enum class Screen(val title: String, val parent: Screen?) {
     SHARING("Sharing", MENU),
     PEER("Shared position", null),
     SERVER("Box", MENU),
+    SETTINGS("Settings", MENU),
 }
 
 /**
@@ -160,6 +161,7 @@ class Panels(private val a: MainActivity) {
             Screen.SHARING -> sharing()
             Screen.PEER -> peer()
             Screen.SERVER -> server()
+            Screen.SETTINGS -> settings()
             Screen.NONE -> {}
         }
     }
@@ -176,6 +178,7 @@ class Panels(private val a: MainActivity) {
         add(a.row("Markers", if (a.markers.markers.isEmpty()) "None" else "${a.markers.markers.size}") { show(Screen.MARKERS) })
         add(a.row("Sharing", a.sharing.summary()) { show(Screen.SHARING) })
         add(a.row("Box", a.prefs.server?.let { ServerAddress.short(it) + " · " + boxState() } ?: "Not set") { show(Screen.SERVER) })
+        add(a.row("Settings", "Coordinates: ${a.prefs.coordFormat.title}") { show(Screen.SETTINGS) })
         // The one way to end a shared position for good, besides swiping the app away.
         add(a.button("Close Fieldmap") { a.quit() }.apply { layoutParams = lp(top = a.dp(16)) })
         if (a.sharing.on) add(a.body("Close Fieldmap also stops the sharing of your position. If you only leave the app, sharing continues.", muted = true, top = 8))
@@ -198,6 +201,23 @@ class Panels(private val a: MainActivity) {
             add(a.row(style.name, detail, icon = if (style.id == current?.id) R.drawable.ic_check else null) { a.chooseStyle(style) }
                 .apply { if (style.id != current?.id && saved == 0 && !a.reachable) alpha = 0.55f })
         }
+    }
+
+    /* ---------- settings ---------- */
+
+    /** The format of all positions in the app, each choice shown with your position (or the map's centre) in it. */
+    private fun settings() {
+        add(a.label("Coordinates"))
+        val here = a.fix()?.let { it.lat to it.lon } ?: a.map?.cameraPosition?.target?.let { it.latitude to it.longitude }
+        val chosen = a.prefs.coordFormat
+        for (f in CoordFormat.entries) {
+            add(a.row(f.title, here?.let { Coords.text(it.first, it.second, f) }, icon = if (f == chosen) R.drawable.ic_check else null) {
+                a.prefs.coordFormat = f
+                a.coordsChanged()
+                build()
+            })
+        }
+        add(a.body("The app shows all positions in this format. This includes the top of the screen, the markers and the shared positions.", muted = true, top = 12))
     }
 
     /* ---------- saved areas ---------- */
@@ -328,7 +348,7 @@ class Panels(private val a: MainActivity) {
         val list = a.markers.markers
         if (list.isEmpty()) add(a.body("There are no markers. To add a marker, touch and hold the map for 2 seconds. To add a marker at your position, touch and hold the blue dot.", muted = true, top = 12))
         for (m in list.asReversed()) {
-            val where = Utm.toMgrs(m.lat, m.lon, 4) ?: String.format(Locale.US, "%.5f, %.5f", m.lat, m.lon)
+            val where = a.coords(m.lat, m.lon, brief = true)
             add(a.row(m.label.ifEmpty { "(no name)" }, where + if (m.shared) " · shared" else "", dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
         }
         add(a.label("File"))
@@ -365,15 +385,16 @@ class Panels(private val a: MainActivity) {
 
         add(a.label("Position"))
         val grid = a.mono("", 18f, muted = false)
-        val latlon = a.mono("")
+        val far = a.mono("")
         fun place() {
             val now = a.markers.get(m.id) ?: return
-            grid.text = Utm.toMgrs(now.lat, now.lon) ?: "Outside the MGRS grid"
-            latlon.text = String.format(Locale.US, "%.5f, %.5f", now.lat, now.lon) + (a.fromHere(now.lat, now.lon)?.let { "\n$it" } ?: "")
+            grid.text = a.coords(now.lat, now.lon)
+            far.text = a.fromHere(now.lat, now.lon).orEmpty()
+            far.visibility = if (far.text.isEmpty()) View.GONE else View.VISIBLE
         }
         place()
         add(grid)
-        add(latlon)
+        add(far)
 
         // One choice, off until the person makes it. A server known to have no sharing does not offer it.
         if (m.shared || a.sharing.box != Sharing.Box.NONE) {
@@ -478,8 +499,9 @@ class Panels(private val a: MainActivity) {
             Ageing.look(p.age, info.interval, info.stale, p.still) == Ageing.Look.FRESH -> "Updated ${Ageing.text(p.age)}." + if (p.still && p.age >= 30) " ${p.name} does not move." else ""
             else -> "Last update ${Ageing.text(p.age)}. ${p.name} can be at a different place now."
         }
-        peerGrid?.text = Utm.toMgrs(p.lat, p.lon) ?: "Outside the MGRS grid"
-        peerWhere?.text = String.format(Locale.US, "%.5f, %.5f", p.lat, p.lon) + (a.fromHere(p.lat, p.lon)?.let { "\n$it" } ?: "")
+        peerGrid?.text = a.coords(p.lat, p.lon)
+        peerWhere?.text = a.fromHere(p.lat, p.lon).orEmpty()
+        peerWhere?.visibility = if (peerWhere?.text.isNullOrEmpty()) View.GONE else View.VISIBLE
     }
 
     /** Once a second: the ages in the open panel of another phone, and in the list. */

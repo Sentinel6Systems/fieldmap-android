@@ -3,6 +3,7 @@ package io.github.sentinel6systems.fieldmap.ui
 import android.content.Context
 import androidx.core.content.edit
 import io.github.sentinel6systems.fieldmap.data.Palette
+import io.github.sentinel6systems.fieldmap.geo.CoordFormat
 import io.github.sentinel6systems.fieldmap.offline.Tiles
 import io.github.sentinel6systems.fieldmap.remote.Enrolment
 import io.github.sentinel6systems.fieldmap.remote.endpointsFrom
@@ -41,6 +42,11 @@ class Prefs(context: Context) {
     var areaZoom: Int
         get() = p.getInt("areaZoom", Tiles.MAX_ZOOM).coerceIn(Tiles.DEPTHS)
         set(v) = p.edit { putInt("areaZoom", v) }
+
+    /** How the app writes positions: MGRS until the person chooses another format. */
+    var coordFormat: CoordFormat
+        get() = CoordFormat.entries.firstOrNull { it.name == p.getString("coordFormat", null) } ?: CoordFormat.MGRS
+        set(v) = p.edit { putString("coordFormat", v.name) }
 
     /** Where the map was: latitude, longitude, zoom. */
     var camera: Triple<Double, Double, Double>?

@@ -38,7 +38,7 @@ import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.MarkerStore
 import io.github.sentinel6systems.fieldmap.databinding.ActivityMainBinding
 import io.github.sentinel6systems.fieldmap.geo.GpsEngine
-import io.github.sentinel6systems.fieldmap.geo.Utm
+import io.github.sentinel6systems.fieldmap.geo.Coords
 import io.github.sentinel6systems.fieldmap.offline.Areas
 import io.github.sentinel6systems.fieldmap.offline.Box
 import io.github.sentinel6systems.fieldmap.offline.SavedArea
@@ -1074,7 +1074,13 @@ class MainActivity : AppCompatActivity() {
         if (follow == Follow.HEADING) lc.cameraMode = if (byCourse) CameraMode.TRACKING_GPS else CameraMode.TRACKING_COMPASS
     }
 
-    /** The strip at the top: the grid reference and latitude/longitude of the device, and the scale bar. */
+    /** A position in the format chosen in Menu › Settings. */
+    internal fun coords(lat: Double, lon: Double, brief: Boolean = false) = Coords.text(lat, lon, prefs.coordFormat, brief)
+
+    /** The format of positions changed: the strip shows it at once, the panels when they are built again. */
+    internal fun coordsChanged() = updateReadout()
+
+    /** The strip at the top: the position of the device in the chosen format, how exact it is, and the scale bar. */
     private fun updateReadout() {
         val m = map ?: return
         // MapLibre counts in density-independent pixels; the bar is drawn in real ones.
@@ -1085,14 +1091,13 @@ class MainActivity : AppCompatActivity() {
             b.latlon.text = if (locationOn) "The app waits for the GPS" else "Press Follow to show your position"
             return
         }
-        b.grid.text = Utm.toMgrs(here.latitude, here.longitude) ?: "Outside the MGRS grid"
+        b.grid.text = coords(here.latitude, here.longitude)
         // Rounded up, never "±0": feet where the scale bar is in feet and miles.
-        val accuracy = when {
-            !here.hasAccuracy() -> ""
-            imperial -> " ±${kotlin.math.ceil(here.accuracy / 0.3048).toInt().coerceAtLeast(1)} ft"
-            else -> " ±${kotlin.math.ceil(here.accuracy.toDouble()).toInt().coerceAtLeast(1)} m"
+        b.latlon.text = when {
+            !here.hasAccuracy() -> "GPS position"
+            imperial -> "GPS position, accuracy ±${kotlin.math.ceil(here.accuracy / 0.3048).toInt().coerceAtLeast(1)} ft"
+            else -> "GPS position, accuracy ±${kotlin.math.ceil(here.accuracy.toDouble()).toInt().coerceAtLeast(1)} m"
         }
-        b.latlon.text = String.format(Locale.US, "YOU%s · %.5f, %.5f", accuracy, here.latitude, here.longitude)
     }
 
     /* ---------- small things ---------- */

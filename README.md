@@ -14,8 +14,8 @@ and use it with gloves. It shows your position. It does not give turn-by-turn di
   size of the download, and press **Download**. A bar shows the progress. A map area has all the map data: the
   tiles of each layer, the style, the fonts and the symbols.
 - **Your position**: the GPS position of the device on the map. One button follows your position, with north up
-  or with your direction up. The top of the screen always shows the grid reference (MGRS) and the latitude and
-  longitude.
+  or with your direction up. The top of the screen always shows your GPS position and its accuracy. Choose
+  the format in **Menu › Settings**: MGRS grid, decimal degrees, or degrees, minutes and seconds.
 - **Markers**: touch and hold the map for 2 seconds to add a marker. Give it a name and one of 12
   colours. The **Print a map** page of the box uses the same markers. A file moves them between the two.
 - **Remote access**: pair the device with the box one time, on the box's network. After that, the app connects to
@@ -106,7 +106,7 @@ Open the app. The top of the screen shows **Offline**. The map shows the map are
 |---|---|
 | **Follow** | Shows your position and keeps the map on it, with north up. Press again to put your direction up. When you drive, the app uses the direction of travel. When you walk, it uses the compass. Move the map to stop. |
 | **+ −** | Zoom. You can also pinch or double-tap. |
-| **Menu** | Map style, map areas, markers, sharing, box, and **Close Fieldmap**. |
+| **Menu** | Map style, map areas, markers, sharing, box, settings, and **Close Fieldmap**. |
 
 **To add a marker, touch and hold the map for 2 seconds.** A ring fills around your finger. When the
 ring is full, the app adds the marker and opens its panel. The marker gets the next name (P1, P2, ...) and the
@@ -114,7 +114,7 @@ last colour that you used. You can change them in the panel. To add a marker at 
 the blue dot.
 
 Tap a marker to see its panel. In the panel you can change the name and the colour, and delete the marker. The
-panel also shows the grid reference, the distance and the bearing. The screen stays on when the map follows your
+panel also shows the position in the format of **Menu › Settings**, the distance and the bearing. The screen stays on when the map follows your
 position.
 
 **To move a marker, press Move in its panel. Then tap the new place on the map.** You can move and zoom the
