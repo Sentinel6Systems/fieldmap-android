@@ -21,11 +21,13 @@ and use it with gloves. It shows your position. It does not give turn-by-turn di
   colours. The **Print a map** page of the box uses the same markers. A file moves them between the two.
 - **Remote access**: pair the device with the box one time, on the box's network. After that, the app connects to
   the box through the internet when the device is not on the box's network. The connection is encrypted, and only paired devices can
-  use it. There is no account and no third party.
+  use it. There is no account and no third party. For a box behind an internet connection that cannot open a
+  port, the owner of the box can add a NetBird network. The app then uses it by itself.
 - **Sharing**: when you switch it on, the other devices on the box see your position with your name. This
   continues when the device is in your pocket. Tick a marker to share it with all devices. Sharing is off until
   you switch it on. There is no account.
 - **Nothing more**: no account, no advertising, no analytics. The app connects only to the box that you set.
+  If the owner of the box set up a NetBird network for the box, the app also connects to that network to reach the box.
 
 The app works with all [TileServer GL](https://github.com/maptiler/tileserver-gl) servers that have vector
 styles. It was made for fieldmap-server and looks like its pages.
@@ -47,7 +49,16 @@ that source).
 
 ## Build
 
-You need a JDK 17 and the Android SDK (platform 35). With Android Studio, open the folder. From a shell:
+You need these four things:
+
+- a JDK 17
+- the Android SDK with platform 35
+- the Android NDK 28.2.13676358. Install it with `sdkmanager "ndk;28.2.13676358"`, or with the SDK Manager of
+  Android Studio (tab **SDK Tools**, tick **Show Package Details**).
+- Go 1.26.10. Download it from <https://go.dev/dl/> and unpack it into the folder `~/sdk/go1.26.10`. You do not
+  need to install it for the full computer. If your Go is in a different folder, set `FIELDMAP_GO` to that folder.
+
+With Android Studio, open the folder. From a shell:
 
 ```bash
 git clone https://github.com/Sentinel6Systems/fieldmap-android.git
@@ -56,6 +67,48 @@ echo "sdk.dir=<path to your Android SDK>" > local.properties
 ./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
 ./gradlew testDebugUnitTest    # the unit tests
 ```
+
+The first build downloads the source code of NetBird and of the other Go packages (about 1 GB in `~/go`) and
+takes some minutes.
+
+### The NetBird library
+
+The app has its own NetBird client. This client is NetBird's Go client, built into a library for Android
+(`app/libs/nblink.aar`). The repository does not contain the built library. Gradle builds it from source with
+the script `nblink/build.sh`. Gradle builds it again only when a file in `nblink/` changes. You can also run the
+script by hand:
+
+```bash
+./nblink/build.sh
+```
+
+All versions are fixed, so that each build uses the same source code:
+
+| What | Version | Where it is fixed |
+|---|---|---|
+| NetBird | v0.83.1 | `nblink/go.mod` |
+| All other Go packages | the versions that NetBird v0.83.1 uses | `nblink/go.mod`, checked with `nblink/go.sum` |
+| gomobile (makes the Android binding) | the version that NetBird v0.83.1 uses | `nblink/go.mod` |
+| Go | 1.26.10 | the `toolchain` line of `nblink/go.mod`. The script stops if your Go is a different version. |
+| Android NDK | 28.2.13676358 | `nblink/build.sh` |
+
+Two builds on one computer gave the same library, byte for byte.
+
+The build changes one file of NetBird: `nblink/_patch/discover_pion.go` takes the place of NetBird's file of
+the same name. The reason: an app on Android 11 or newer cannot get the list of network connections of the
+device in the way that NetBird asks for it. NetBird then sends all data through a relay server. With the
+changed file, the device and the box can also connect directly. The change is a few lines. The script makes it
+in a copy of NetBird's source code (in `/tmp/fieldmap-nblink`, removed after the build). The script stops if
+NetBird's file is not the one that the change was made for. To build with NetBird's source code as it is,
+remove the line in `nblink/build.sh` that copies the file. The app then connects through the relay only.
+
+To use a newer NetBird, change its version in `nblink/go.mod`, copy the `toolchain` line and the `replace` lines
+from the `go.mod` of that NetBird version, and run `go mod tidy` in `nblink/`. Then test the app against a
+NetBird network before you release it.
+
+The library is large: about 38 MB for each processor type. The APK has the libraries of three processor types
+(64-bit ARM, 32-bit ARM, and x86-64 for emulators) in compressed form. Android unpacks only the library of the
+device.
 
 ### Release builds
 
@@ -242,6 +295,72 @@ shows only markers.
   app saves new map areas from the new address.
 - The download runs while the app is open. Downloads do not run in the background yet.
 
+### Remote access through a NetBird network
+
+Some internet connections do not let the router of the box open a port. Starlink is one example. The direct
+addresses of the box then do not work from outside. For such a box, the owner can set up a NetBird network.
+[NetBird](https://netbird.io) is an open-source product that connects computers through the internet. The
+computers connect out to a NetBird server and then to each other, so no port is necessary.
+
+**You do nothing for this in the app.** There is no button and no setting.
+
+What the owner of the box did, one time:
+
+1. The owner made a NetBird network: a free account at NetBird, or an own NetBird server.
+2. The owner made a setup key in that network.
+3. The owner typed the setup key on the page **Admin › Remote access** of the box.
+
+What the app does by itself:
+
+1. When you pair the device, the box gives the app the setup key. A device that is paired already gets the setup
+   key the next time that it connects to the box.
+2. Outside the box's network, the app tries the direct addresses of the box first.
+3. If no direct address answers, the app joins the NetBird network and connects to the box through it.
+4. On the box's network, the app leaves the NetBird network. It also leaves when you close the app, and one
+   minute after the app goes off the screen with sharing off.
+
+The top of the screen shows **Connected**, as with all other connections. **Menu › Box** tells you when the
+connection uses the NetBird network.
+
+What it costs:
+
+- **Time.** The app needs some seconds more to connect: it must join the NetBird network first. In the test,
+  this took 1 to 4 seconds.
+- **Battery.** While the app is connected through NetBird, the NetBird client keeps a connection open and sends
+  small messages all the time. This uses more battery than a direct address. The cost on a real device is not
+  measured yet. The app runs the client only while it is the way to the box.
+- **Data.** With no map and no positions on the way, the client used about 1 MB in one hour in the test. Map data
+  and positions need about 5 % more data than on a direct address.
+- **Speed.** The device and the box try to connect to each other directly. Some internet connections do not
+  permit this. Then all data goes through a relay server of the NetBird network, and the map loads slower. The
+  data stays encrypted on this way too.
+- **Memory and storage.** The client uses about 55 MB of memory while it runs. The app is about 65 MB larger on
+  the device than a version with no NetBird client.
+
+Save your map areas on the box's network, not through NetBird, if you can. A large map area is a large download.
+
+What stays the same: NetBird is only the road to the box. The app talks to the same gateway of the box and does
+the same check of certificates as on a direct address. A member of the NetBird network without a certificate
+from the box gets nothing from the box. Maps, positions and markers go through NetBird encrypted. NetBird cannot
+read them.
+
+What the NetBird network knows about the device: its name ("Fieldmap" with the make and model), its Android
+version, its internet address, and the times when it is connected. The owner of the box sees the device in the
+list of members on the NetBird dashboard.
+
+What the app keeps on the device: the setup key, encrypted with a key in the key store of the device, and the
+device's own NetBird key in the private storage of the app. The app never shows the setup key and never writes
+it to a log. **Unpair this device** deletes both. The app also deletes both when the owner switches off NetBird
+on the box, or removes the device.
+
+This is not a VPN of the system. Android does not ask for a VPN permission and shows no key icon. The NetBird
+client is a part of the app. Only the requests of the app to the box use it. A different VPN on the device
+continues to work.
+
+If the owner removes a device on the **Devices** page of the box, the device is still a member of the NetBird
+network. It gets nothing from the box, because its certificate is not valid any more. To remove it from the
+NetBird network also, the owner deletes it on the NetBird dashboard.
+
 ## Permissions
 
 | Permission | Why |
@@ -250,7 +369,7 @@ shows only markers.
 | Notifications | For the notification that shows that the app shares your position. The app asks when you switch on sharing, and when you open the app with sharing on, until you allow it (Android 13 and newer). Sharing works also without it. Android then shows it only in the list of running apps. |
 | Run in the background, with location | To continue sharing when the app is not on the screen. Only when sharing is on. |
 | Keep the device awake | For the few seconds that one position needs to go to the box from the background. |
-| Network | To connect to the box that you set. The app can use plain `http`, because a box on a home network has no certificate. |
+| Network | To connect to the box that you set. The app can use plain `http`, because a box on a home network has no certificate. The NetBird client of the app needs no more permissions. |
 
 A box with its own Wi-Fi often has no internet. Android then sends the traffic of the apps over mobile data, and
 the box is not there. When the box does not answer, and the device is on such a network, the app connects to the
@@ -328,6 +447,31 @@ handling, tile counting, and sharing: what is sent and read, bringing shared mar
 the last answer, the whole list, removed ones, the last change winning), how a position ages, the pace in the
 background and telling rest from movement.
 
+Remote access through a NetBird network was tested on the emulator, against a fieldmap-server box in a
+container and an own NetBird server (v0.83.1) on the same computer:
+
+- pairing gives the app the NetBird block of the box; the setup key is stored encrypted
+- with the box's network gone and no direct address: **Connected** through NetBird, 13 seconds after the app
+  started; the box showed that a device came in through NetBird; the connection was direct, not through the relay
+- through the NetBird port of the app, the gateway of the box refused a request with no certificate and a
+  request with a certificate from a different authority, and it showed only the certificate of the box
+- the NetBird client stopped: on the box's network (6 seconds), one minute after the app left the screen, at once
+  with **Close Fieldmap**, and when the box removed the device
+- sharing in the background through NetBird: the box got a position every 20 seconds, and the client ran on
+  while sharing was on
+- NetBird switched off on the box: the app deleted the setup key and its NetBird key. Switched on again: the app
+  got the block on the box's network and connected from outside again
+- a device removed on the box: the app dropped the pairing, the setup key and its NetBird key
+
+Not tested yet for NetBird: NetBird's cloud service (the test used an own server), a real Starlink connection,
+a real device (the battery, a night in the pocket, the battery savers of device makers, a 32-bit device), a
+connection through the relay over a real distance, a new setup key on the box, and a box that gets a new address
+in the NetBird network.
+
+The unit tests for NetBird cover: reading the block of the box, the answers of the gateway, what a changed block
+means, the order of the ways (the box's network, the direct addresses, NetBird), the wait after a start that
+failed, and the rules that stop the client.
+
 Not tested yet: a box whose Wi-Fi has no internet, a download of several gigabytes, a long drive or hike, and
 devices without Google services.
 
@@ -351,7 +495,8 @@ Not built yet, in no fixed order:
 |---|---|
 | `app/src/main/java/.../ui/` | The one screen (`MainActivity`), its panels (`Panels`), the rounds of live sharing (`Sharing`), and the pieces they are built from (`Ui`, `Views`) |
 | `.../server/` | Talking to the tile server: its styles, its tile sets, finding it on the network, and which way requests travel (`Http`) |
-| `.../remote/` | Pairing: the device's key, being let in by the box, its addresses, the connection to its gateway |
+| `.../remote/` | Pairing: the device's key, being let in by the box, its addresses, the connection to its gateway. NetBird as a second way: what the box says about it and the rules for the order of the ways (`NetBird`), the client and its start and stop (`NetBirdLink`), the stored setup key (`Secret`) |
+| `nblink/` | The NetBird client of the app: a small Go package around NetBird's own client, and the script that builds it for Android |
 | `.../offline/` | Map areas on top of MapLibre's offline regions; counting tiles and estimating sizes |
 | `.../data/` | Markers and their file format |
 | `.../share/` | Live sharing: what is sent to and read from the box's `/mapshare/` service, bringing shared markers together (last change wins), how a position ages, and the service that keeps the position shared in the background (`ShareService`) |
@@ -376,5 +521,11 @@ artwork was taken from them.
   [OpenMapTiles](https://openmaptiles.org/). The app shows this line on the map.
 - Map drawing and offline storage: [MapLibre Native](https://github.com/maplibre/maplibre-native) (BSD 2-Clause)
 - AndroidX libraries, Kotlin coroutines and [OkHttp](https://github.com/square/okhttp) (Apache License 2.0)
+- The NetBird client: [NetBird](https://github.com/netbirdio/netbird) (BSD 3-Clause; the app uses only the client
+  part, and no part of NetBird's servers, which have a different license). The library that the build makes
+  from it also contains the Go packages that the client needs. The largest are
+  [wireguard-go](https://git.zx2c4.com/wireguard-go) (MIT), [gVisor](https://gvisor.dev) (Apache License 2.0),
+  [Pion](https://github.com/pion) (MIT) and [gRPC-Go](https://github.com/grpc/grpc-go) (Apache License 2.0).
+  [nblink/LICENSES.md](nblink/LICENSES.md) lists all of them with their licenses.
 
 The code in this repository is under the MIT license. See [LICENSE](LICENSE).

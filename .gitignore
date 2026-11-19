@@ -13,5 +13,6 @@ keystore.properties
 *.keystore
 
 # Build outputs
+app/libs/nblink.aar
 *.apk
 *.aab

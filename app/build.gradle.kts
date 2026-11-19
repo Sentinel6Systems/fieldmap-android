@@ -48,9 +48,25 @@ android {
         buildConfig = true
     }
     testOptions { unitTests.isReturnDefaultValues = true }
+    // One APK for every device has the libraries of three processor types, and the NetBird
+    // library is large (about 38 MB each). Compressed in the APK, the file to download is less
+    // than half the size, and Android unpacks only the libraries of the device at install time.
+    packaging { jniLibs { useLegacyPackaging = true } }
 }
 
+// The NetBird client of the app is a Go library (nblink/). It is built here from source, with
+// NetBird and Go at the versions pinned in nblink/go.mod: the repository holds no built library.
+// The task runs only when the library is missing or its sources changed. See README, "Build".
+val nblink = tasks.register<Exec>("nblink") {
+    val library = layout.projectDirectory.file("libs/nblink.aar")
+    inputs.files(fileTree(rootProject.file("nblink")) { include("*.go", "_patch/*", "go.mod", "go.sum", "build.sh") })
+    outputs.file(library)
+    commandLine(rootProject.file("nblink/build.sh").path, library.asFile.path)
+}
+tasks.named("preBuild") { dependsOn(nblink) }
+
 dependencies {
+    implementation(files("libs/nblink.aar").builtBy(nblink))
     implementation("org.maplibre.gl:android-sdk:13.7.1")
     // The HTTP client MapLibre uses, at MapLibre's version: the app gives the map its own
     // client, so that the map's requests can go through the remote link too.

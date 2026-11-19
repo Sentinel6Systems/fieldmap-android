@@ -569,6 +569,7 @@ class Panels(private val a: MainActivity) {
             // The box's own words about being reached from outside: fresh at home, as last heard away.
             val reach = info?.reach?.ifEmpty { null } ?: mine.reach
             box.addView(a.body(when {
+                a.netbirdNow -> "This device is paired. It is connected to the box through the internet now. The connection uses the NetBird network of the box."
                 a.remoteNow -> "This device is paired. It is connected to the box through the internet now."
                 a.reachable -> "This device is paired. When this device is not on the box's network, the app connects to the box through the internet."
                 else -> "This device is paired, but the box does not answer through the internet. Connect to the box's network one time. The app then gets the new address of the box."

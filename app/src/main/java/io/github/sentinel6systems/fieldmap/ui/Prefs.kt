@@ -6,6 +6,8 @@ import io.github.sentinel6systems.fieldmap.data.Palette
 import io.github.sentinel6systems.fieldmap.geo.CoordFormat
 import io.github.sentinel6systems.fieldmap.offline.Tiles
 import io.github.sentinel6systems.fieldmap.remote.Enrolment
+import io.github.sentinel6systems.fieldmap.remote.NetBirdBlock
+import io.github.sentinel6systems.fieldmap.remote.Secret
 import io.github.sentinel6systems.fieldmap.remote.endpointsFrom
 import io.github.sentinel6systems.fieldmap.remote.endpointsTo
 import org.json.JSONArray
@@ -61,16 +63,38 @@ class Prefs(context: Context) {
             val ca = p.getString("remote.ca", null) ?: return null
             val endpoints = try { endpointsFrom(JSONArray(p.getString("remote.endpoints", "[]"))) } catch (e: Exception) { emptyList() }
             return Enrolment(home, p.getString("remote.id", "").orEmpty(), certificate, ca, p.getString("remote.gateway", "").orEmpty(),
-                endpoints, p.getString("remote.reach", "").orEmpty())
+                endpoints, p.getString("remote.reach", "").orEmpty(), netbird())
         }
         set(v) = p.edit {
-            listOf("home", "id", "certificate", "ca", "gateway", "endpoints", "reach", "host", "port").forEach { remove("remote.$it") }
+            listOf("home", "id", "certificate", "ca", "gateway", "endpoints", "reach", "host", "port",
+                "nb.management", "nb.key", "nb.host", "nb.port", "nb.rev").forEach { remove("remote.$it") }
             if (v != null) {
                 putString("remote.home", v.home); putString("remote.id", v.id); putString("remote.certificate", v.certificate)
                 putString("remote.ca", v.ca); putString("remote.gateway", v.gatewayName)
                 putString("remote.endpoints", endpointsTo(v.endpoints).toString()); putString("remote.reach", v.reach)
             }
+            // The setup key is written only in a form that this app on this device can read.
+            val sealed = v?.netbird?.let { block -> if (block.setupKey == opened?.second) opened?.first else Secret.seal(block.setupKey) }
+            if (v?.netbird != null && sealed != null) {
+                putString("remote.nb.management", v.netbird.management); putString("remote.nb.key", sealed)
+                putString("remote.nb.host", v.netbird.host); putInt("remote.nb.port", v.netbird.port); putString("remote.nb.rev", v.netbird.rev)
+                opened = sealed to v.netbird.setupKey
+            } else {
+                // No NetBird (any more), or not paired: nothing of the setup key stays.
+                opened = null
+                Secret.forget()
+            }
         }
+
+    /** The setup key as it is written down, and as it reads: opened once, not at every look. */
+    private var opened: Pair<String, String>? = null
+
+    private fun netbird(): NetBirdBlock? {
+        val sealed = p.getString("remote.nb.key", null) ?: return null
+        val key = opened?.takeIf { it.first == sealed }?.second ?: Secret.open(sealed)?.also { opened = sealed to it } ?: return null
+        return NetBirdBlock(p.getString("remote.nb.management", "").orEmpty(), key, p.getString("remote.nb.host", "").orEmpty(),
+            p.getInt("remote.nb.port", 0), p.getString("remote.nb.rev", "").orEmpty())
+    }
 
     /** Tells this phone from the others on a box. Made once, at random; not a secret, and it says nothing about the phone. */
     val uid: String

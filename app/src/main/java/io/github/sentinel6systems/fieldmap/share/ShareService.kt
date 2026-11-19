@@ -24,6 +24,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import io.github.sentinel6systems.fieldmap.R
+import io.github.sentinel6systems.fieldmap.remote.NetBirdLink
+import io.github.sentinel6systems.fieldmap.remote.RemoteAccess
+import io.github.sentinel6systems.fieldmap.remote.Way
 import io.github.sentinel6systems.fieldmap.server.Http
 import io.github.sentinel6systems.fieldmap.server.Net
 import io.github.sentinel6systems.fieldmap.server.Route
@@ -84,6 +87,8 @@ class ShareService : Service() {
         locations = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         awake = (getSystemService(Context.POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fieldmap:share").apply { setReferenceCounted(false) }
         Net.start(this)
+        // While the position is shared, the service can need the box's NetBird network.
+        NetBirdLink.use(SHARING)
         instance = this
     }
 
@@ -113,6 +118,8 @@ class ShareService : Service() {
 
     override fun onDestroy() {
         if (instance === this) instance = null
+        // Sharing ended. If the app is also off the screen, nothing needs the NetBird client.
+        NetBirdLink.release(SHARING, atOnce = true)
         listen(0)
         scope.cancel()
         awake?.let { if (it.isHeld) it.release() }
@@ -248,23 +255,56 @@ class ShareService : Service() {
     private suspend fun atHome(places: List<String>, body: String): Answer? {
         for (place in places) {
             val r = Net.reach { ShareClient.post(place + "position", body, Route.LAN).takeIf { it.code != null && it.code != 404 } } ?: continue
-            if (r.code == 200 || r.code == 204) { Http.route = Route.LAN; ShareLine.base = place }
+            if (r.code == 200 || r.code == 204) {
+                Http.route = Route.LAN
+                ShareLine.base = place
+                // At home: the NetBird client stops.
+                NetBirdLink.last = Way.HOME
+                Http.remote?.through(null)
+                NetBirdLink.close()
+            }
             return r
         }
         return null
     }
 
-    /** Through the box's gateway, at each address it gave, the one that answered last first. */
+    /**
+     * Through the box's gateway: at each direct address it gave, the one that answered last
+     * first, and then through the box's NetBird network, when its owner set one up.
+     */
     private suspend fun outside(place: String, body: String): Answer? {
         val end = Http.remote ?: return null
+        val block = prefs.enrolment?.takeIf { it.home == prefs.server }?.netbird?.takeIf { NetBirdLink.possible }
         Net.untie()
-        for (i in listOf(end.current) + end.endpoints.indices.filter { it != end.current }) {
-            end.current = i
-            val r = ShareClient.post(place + "position", body, Route.REMOTE)
-            if (r.code == null) continue
-            if (r.code == 200 || r.code == 204) { Http.route = Route.REMOTE; ShareLine.base = place }
-            return r
+        val now = SystemClock.elapsedRealtime()
+        val plan = NetBirdLink.rules.plan(now, NetBirdLink.last, end.endpoints.isNotEmpty(), block != null, Net.internet(), NetBirdLink.on)
+        if (Way.DIRECT in plan) {
+            NetBirdLink.rules.directTried(now)
+            for (i in end.order) {
+                end.direct(i)
+                val r = ShareClient.post(place + "position", body, Route.REMOTE)
+                if (r.code == null) continue
+                if (r.code == 200 || r.code == 204) { Http.route = Route.REMOTE; ShareLine.base = place; NetBirdLink.last = Way.DIRECT }
+                // A direct address answers: the NetBird client is not needed.
+                NetBirdLink.close()
+                return r
+            }
         }
+        if (Way.NETBIRD in plan && block != null) {
+            val local = NetBirdLink.open(this, block, NetBirdLink.memberName(RemoteAccess.deviceName))
+            if (local != null && Http.remote === end) {
+                end.through(local)
+                val r = ShareClient.post(place + "position", body, Route.REMOTE)
+                if (r.code != null) {
+                    NetBirdLink.rules.answered()
+                    if (r.code == 200 || r.code == 204) { Http.route = Route.REMOTE; ShareLine.base = place; NetBirdLink.last = Way.NETBIRD }
+                    return r
+                }
+                if (NetBirdLink.rules.noAnswer(now)) { end.through(null); NetBirdLink.close() }
+            }
+        }
+        // Without a connection to the internet the client only uses the battery.
+        if (!Net.internet()) { end.through(null); NetBirdLink.close() }
         return null
     }
 
@@ -301,6 +341,8 @@ class ShareService : Service() {
         private const val AWAKE_MS = 20_000L
         private const val OFF_MS = 60_000L
         private const val REFUSED_MS = 300_000L
+        /** This service, as a user of the NetBird client. */
+        private const val SHARING = "sharing"
 
         @Volatile
         private var instance: ShareService? = null

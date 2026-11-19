@@ -1,5 +1,6 @@
 package io.github.sentinel6systems.fieldmap.remote
 
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -8,9 +9,11 @@ import io.github.sentinel6systems.fieldmap.server.RemoteEnd
 import io.github.sentinel6systems.fieldmap.server.Route
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.net.Socket
@@ -40,10 +43,18 @@ data class Enrolment(
     val endpoints: List<Endpoint>,
     /** What the box said last about being reached from outside, in its own words. */
     val reach: String = "",
+    /** The box's NetBird network, when its owner set one up: a second way to the box from outside. */
+    val netbird: NetBirdBlock? = null,
 )
 
 /** What the box says about remote access, asked on its own network. */
-class RemoteInfo(val ready: Boolean, val enabled: Boolean, val pin: Boolean, val pairingOpen: Boolean, val endpoints: List<Endpoint>, val reach: String, val reachStatus: String)
+class RemoteInfo(
+    val ready: Boolean, val enabled: Boolean, val pin: Boolean, val pairingOpen: Boolean, val endpoints: List<Endpoint>, val reach: String, val reachStatus: String,
+    /** Changes when the box's NetBird block changes; "" when the box has none; null from a box with older software. */
+    val netbirdRev: String? = null,
+    /** The port of the gateway on the box itself; 0 when the box did not say. */
+    val gatewayPort: Int = 0,
+)
 
 /** Endpoints to and from the box's JSON: [{"host": ..., "port": ...}]. */
 fun endpointsFrom(list: org.json.JSONArray?): List<Endpoint> =
@@ -67,6 +78,9 @@ object RemoteAccess {
     private const val STORE = "AndroidKeyStore"
     class Refused(message: String, val wantsCode: Boolean = false) : Exception(message)
 
+    /** The name this device pairs under: the box's owner sees it on the Devices page of the box. */
+    val deviceName: String get() = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+
     /** Where a server answers about remote access: beside the maps, on the web port. */
     private fun addresses(base: String, page: String): List<String> {
         val url = base.toHttpUrlOrNull() ?: return emptyList()
@@ -86,6 +100,8 @@ object RemoteAccess {
                         return@withContext RemoteInfo(
                             o.optBoolean("ready"), o.optBoolean("enabled", true), o.optBoolean("pin"), o.optJSONObject("pairing")?.optBoolean("open") == true,
                             endpointsFrom(o.optJSONArray("endpoints")), reach?.optString("text").orEmpty(), reach?.optString("status").orEmpty(),
+                            o.optJSONObject("netbird")?.let { if (it.optBoolean("on")) it.optString("rev") else "" },
+                            o.optJSONObject("forwarding")?.optInt("port") ?: 0,
                         )
                     }
                 }
@@ -105,13 +121,27 @@ object RemoteAccess {
                     val o = try { JSONObject(r.body?.string().orEmpty()) } catch (e: Exception) { JSONObject() }
                     if (r.code == 200 && o.has("certificate")) {
                         return@withContext Enrolment(base, o.optString("id"), o.getString("certificate"), o.getString("ca"),
-                            o.optString("gatewayName"), endpointsFrom(o.optJSONArray("endpoints")))
+                            o.optString("gatewayName"), endpointsFrom(o.optJSONArray("endpoints")), netbird = netbirdFrom(o.optJSONObject("netbird")))
                     }
                     if (r.code != 404) last = Refused(o.optString("error").ifEmpty { "The box did not accept the request (${r.code})." }, o.optBoolean("pin"))
                 }
             } catch (e: Exception) { /* try the next place */ }
         }
         throw last ?: Refused("The box did not answer. Pair the device on the box's network.")
+    }
+
+    /**
+     * Asks the gateway, with this device's certificate, about the box's NetBird network.
+     * `host` and `port` are any address that reaches the gateway: at home the box itself, from
+     * outside a direct address or the NetBird port on this device.
+     */
+    suspend fun netbird(end: RemoteEnd, host: String, port: Int): Pair<BlockAnswer, NetBirdBlock?> = withContext(Dispatchers.IO) {
+        try {
+            val url = HttpUrl.Builder().scheme("https").host(host.trim('[', ']')).port(port).addPathSegments("mapremote/netbird").build()
+            end.client.newCall(Request.Builder().url(url).build()).execute().use { r -> blockAnswer(r.code, r.body?.string()) }
+        } catch (e: Exception) {
+            blockAnswer(null, null)
+        }
     }
 
     /** The phone's key, made the first time it is asked for. */
@@ -134,9 +164,9 @@ object RemoteAccess {
     private fun certificate(pem: String): X509Certificate =
         CertificateFactory.getInstance("X.509").generateCertificate(pem.byteInputStream()) as X509Certificate
 
-    /** The gateway of an enrolment, or null when the box gave no address to reach it at (yet). */
+    /** The gateway of an enrolment, or null when the box gave no way to reach it from outside (yet). */
     fun end(e: Enrolment): RemoteEnd? {
-        if (e.endpoints.isEmpty()) return null
+        if (e.endpoints.isEmpty() && e.netbird == null) return null
         return try {
             val own = certificate(e.certificate)
             val key = privateKey()

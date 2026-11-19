@@ -43,8 +43,17 @@ import io.github.sentinel6systems.fieldmap.offline.Areas
 import io.github.sentinel6systems.fieldmap.offline.Box
 import io.github.sentinel6systems.fieldmap.offline.SavedArea
 import io.github.sentinel6systems.fieldmap.offline.bytesText
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import io.github.sentinel6systems.fieldmap.remote.BlockAnswer
+import io.github.sentinel6systems.fieldmap.remote.BlockChange
+import io.github.sentinel6systems.fieldmap.remote.Endpoint
 import io.github.sentinel6systems.fieldmap.remote.Enrolment
+import io.github.sentinel6systems.fieldmap.remote.NetBirdBlock
+import io.github.sentinel6systems.fieldmap.remote.NetBirdLink
 import io.github.sentinel6systems.fieldmap.remote.RemoteAccess
+import io.github.sentinel6systems.fieldmap.remote.Way
+import io.github.sentinel6systems.fieldmap.remote.WayRules
+import io.github.sentinel6systems.fieldmap.remote.blockChange
 import io.github.sentinel6systems.fieldmap.server.Found
 import io.github.sentinel6systems.fieldmap.server.Http
 import io.github.sentinel6systems.fieldmap.server.MapStyle
@@ -522,51 +531,90 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Asks the server for its styles: this is how the app knows whether it is in reach. First
-     * the way it is reached at home; if nothing answers there and this phone has been let in,
-     * through the remote link.
+     * the way it is reached at home. If nothing answers there and this device is paired: the
+     * box's direct addresses, and last the box's NetBird network, when its owner set one up.
      */
     internal fun probe() {
         val base = prefs.server
         if (base == null || probing) return
         probing = true
         scope.launch {
-            var way = Route.LAN
-            var styles = Net.reach { TileServer.styles(base, way = Route.LAN) }
             val end = Http.remote
-            if (styles == null && end != null) {
-                Net.untie()
-                way = Route.REMOTE
-                // Each address the box gave, the one that answered last first.
-                val order = listOf(end.current) + end.endpoints.indices.filter { it != end.current }
-                for (i in order) {
-                    end.current = i
-                    styles = TileServer.styles(base, 6000, Route.REMOTE)
-                    if (styles != null) break
-                    // The gateway answers 403 to a phone its owner removed on the box, and 401 to
-                    // everyone while remote access is switched off on the box (Admin, Remote access).
-                    val answer = TileServer.status("${base}styles.json", 6000, Route.REMOTE)
-                    if (answer == 403 && base == prefs.server) {
-                        removeRemote()
-                        toast("The box removed this device. To use the box through the internet, pair this device again on the box's network.")
-                        break
+            val block = enrolment()?.netbird?.takeIf { NetBirdLink.possible }
+            val now = SystemClock.elapsedRealtime()
+            val plan = NetBirdLink.rules.plan(now, NetBirdLink.last.takeIf { reachable }, end != null && end.endpoints.isNotEmpty(),
+                end != null && block != null, Net.internet(), NetBirdLink.on)
+            var way: Way? = null
+            var styles: List<MapStyle>? = null
+            for (next in plan) {
+                var refused = false
+                when (next) {
+                    Way.HOME -> styles = Net.reach { TileServer.styles(base, way = Route.LAN) }
+                    Way.DIRECT -> if (end != null) {
+                        Net.untie()
+                        NetBirdLink.rules.directTried(now)
+                        // Each address the box gave, the one that answered last first.
+                        for (i in end.order) {
+                            end.direct(i)
+                            styles = TileServer.styles(base, 6000, Route.REMOTE)
+                            if (styles != null) break
+                            refused = gatewayRefused(base)
+                            if (refused) break
+                        }
                     }
-                    if (answer == 401) {
-                        if (!remoteSwitchedOff) toast("Remote access is off on the box.")
-                        remoteSwitchedOff = true
-                        break
+                    Way.NETBIRD -> if (end != null && block != null) {
+                        Net.untie()
+                        val local = NetBirdLink.open(this@MainActivity, block, NetBirdLink.memberName(RemoteAccess.deviceName))
+                        if (local != null && Http.remote === end) {
+                            end.through(local)
+                            // The first answer through NetBird can take some seconds: the two ends must find each other.
+                            styles = TileServer.styles(base, NETBIRD_WAIT_MS, Route.REMOTE)
+                            if (styles == null) refused = gatewayRefused(base)
+                            if (styles != null || refused) NetBirdLink.rules.answered()
+                            // The client runs, but the box does not answer through it: not for ever.
+                            else if (NetBirdLink.rules.noAnswer(now)) { end.through(null); NetBirdLink.close() }
+                        }
                     }
                 }
+                if (styles != null) way = next
+                if (styles != null || refused) break
             }
             probing = false
             if (base != prefs.server) return@launch
+            // The NetBird client costs battery and data: it runs only while it is the way to the box.
+            if (WayRules.mustStop(way, enrolment()?.netbird != null, Net.internet(), NetBirdLink.inUse)) {
+                Http.remote?.through(null)
+                NetBirdLink.close()
+            }
             if (!styles.isNullOrEmpty()) prefs.styles = styles
-            val changed = styles != null && Http.route != way
-            if (styles != null) Http.route = way
+            val route = if (way == Way.HOME) Route.LAN else Route.REMOTE
+            val changed = styles != null && (Http.route != route || NetBirdLink.last != way)
+            if (styles != null) { Http.route = route; NetBirdLink.last = way }
             if (styles != null) remoteSwitchedOff = false
             setReachable(styles != null)
             if (changed) { updateStatus(); panels.refresh() }
-            if (styles != null && way == Route.LAN) refreshRemote(base)
+            if (styles != null) refreshRemote(base, way == Way.HOME)
         }
+    }
+
+    /**
+     * Nothing useful came through the gateway: did it refuse this device? It answers 403 to a
+     * device its owner removed on the box, and 401 to everyone while remote access is switched
+     * off on the box (Admin, Remote access). True when it did, and what follows is done.
+     */
+    private suspend fun gatewayRefused(base: String): Boolean {
+        val answer = TileServer.status("${base}styles.json", 6000, Route.REMOTE)
+        if (answer == 403 && base == prefs.server) {
+            removeRemote()
+            toast("The box removed this device. To use the box through the internet, pair this device again on the box's network.")
+            return true
+        }
+        if (answer == 401) {
+            if (!remoteSwitchedOff) toast("Remote access is off on the box.")
+            remoteSwitchedOff = true
+            return true
+        }
+        return false
     }
 
     private fun setReachable(on: Boolean) {
@@ -591,25 +639,71 @@ class MainActivity : AppCompatActivity() {
     /** What this phone was given by the server it is set to, if it has been let in there. */
     internal fun enrolment(): Enrolment? = prefs.enrolment?.takeIf { it.home == prefs.server }
 
+    /** True while the box is reached through its NetBird network. */
+    internal val netbirdNow get() = remoteNow && Http.remote?.netbird != null
+
     /** Tells the client where home is and, when this phone has been let in, where the gateway is. */
     private fun applyRemote() {
         Http.setHome(prefs.server)
-        Http.remote = enrolment()?.let(RemoteAccess::end)
+        val mine = enrolment()
+        // No NetBird for this box (any more): the client stops, here and not at the next look.
+        if (mine?.netbird == null) NetBirdLink.close()
+        Http.remote = mine?.let(RemoteAccess::end)?.also { it.through(NetBirdLink.local) }
     }
 
-    /** At home, now and then: have the box's addresses from outside changed? */
-    private fun refreshRemote(base: String) {
-        val mine = enrolment() ?: return
+    /**
+     * Now and then: have the box's addresses from outside changed, or its NetBird network?
+     * At home the box says so to everyone on its network, except for the NetBird block, which
+     * only the gateway gives, and only to a paired device. From outside the app asks the gateway.
+     */
+    private fun refreshRemote(base: String, atHome: Boolean) {
+        var mine = enrolment() ?: return
         val now = SystemClock.elapsedRealtime()
         if (now - remoteChecked < REMOTE_CHECK_MS && remoteChecked != 0L) return
         remoteChecked = now
         scope.launch {
-            val info = RemoteAccess.info(base) ?: return@launch
-            if (base != prefs.server || (info.endpoints == mine.endpoints && info.reach == mine.reach)) return@launch
-            prefs.enrolment = mine.copy(endpoints = info.endpoints, reach = info.reach)
-            applyRemote()
-            panels.refresh()
+            var host = Http.remote?.endpoint?.host
+            var port = Http.remote?.endpoint?.port ?: 0
+            var ask = !atHome
+            if (atHome) {
+                val info = RemoteAccess.info(base) ?: return@launch
+                if (base != prefs.server) return@launch
+                if (info.endpoints != mine.endpoints || info.reach != mine.reach) {
+                    mine = mine.copy(endpoints = info.endpoints, reach = info.reach)
+                    prefs.enrolment = mine
+                    applyRemote()
+                    panels.refresh()
+                }
+                host = base.toHttpUrlOrNull()?.host
+                port = info.gatewayPort
+                ask = info.netbirdRev != null && info.netbirdRev != mine.netbird?.rev.orEmpty()
+            }
+            if (!ask || host == null || port !in 1..65535) return@launch
+            // The gateway of the box as it is now: applyRemote may have made a new one above.
+            val end = RemoteAccess.end(mine.copy(endpoints = listOf(Endpoint(host, port)))) ?: return@launch
+            val (answer, block) = RemoteAccess.netbird(end, host, port)
+            if (base != prefs.server || enrolment()?.id != mine.id) return@launch
+            when (answer) {
+                BlockAnswer.SET -> if (block != null) setNetBird(block)
+                BlockAnswer.NONE -> if (mine.netbird != null) setNetBird(null)
+                // The next look at the box finds the same, and says so to the person.
+                BlockAnswer.REMOVED, BlockAnswer.KEEP -> {}
+            }
         }
+    }
+
+    /** The box's NetBird network changed, came, or went (null). */
+    private fun setNetBird(block: NetBirdBlock?) {
+        val mine = enrolment() ?: return
+        val change = if (block == null) BlockChange.REJOIN else blockChange(mine.netbird, block)
+        if (change == BlockChange.SAME) return
+        // Another network, or none: this device's membership of the old one is of no use.
+        if (change == BlockChange.REJOIN) NetBirdLink.forget(this)
+        if (change == BlockChange.RESTART) NetBirdLink.close()
+        NetBirdLink.rules.reset()
+        prefs.enrolment = mine.copy(netbird = block)
+        applyRemote()
+        panels.refresh()
     }
 
     /** Asks the server to let this phone in. `done` gets null, or what went wrong in the server's words. */
@@ -617,7 +711,9 @@ class MainActivity : AppCompatActivity() {
         val base = prefs.server ?: return done("Connect to the box first.")
         scope.launch {
             try {
-                val paired = RemoteAccess.enrol(base, "${Build.MANUFACTURER} ${Build.MODEL}".trim(), code)
+                val paired = RemoteAccess.enrol(base, RemoteAccess.deviceName, code)
+                // A membership of another NetBird network, from an old pairing, is of no use.
+                if (paired.netbird == null || blockChange(prefs.enrolment?.netbird, paired.netbird) == BlockChange.REJOIN) NetBirdLink.forget(this@MainActivity)
                 prefs.enrolment = paired.copy(reach = RemoteAccess.info(base)?.reach.orEmpty())
                 applyRemote()
                 done(null)
@@ -629,6 +725,8 @@ class MainActivity : AppCompatActivity() {
 
     /** Forgets the remote link on this phone. The server keeps the phone on its list until its owner removes it. */
     internal fun removeRemote() {
+        // With it go the NetBird setup key and this device's membership of the NetBird network.
+        NetBirdLink.forget(this)
         prefs.enrolment = null
         applyRemote()
         Http.route = Route.LAN
@@ -1142,6 +1240,7 @@ class MainActivity : AppCompatActivity() {
         b.map.onStart()
         // In view, the app sends the position itself; the service waits, ready to take over.
         ShareService.shown(true)
+        NetBirdLink.use(SCREEN)
         keepSharing()
     }
 
@@ -1163,6 +1262,8 @@ class MainActivity : AppCompatActivity() {
         b.map.onStop()
         // Out of view: from here on the service keeps the position shared.
         ShareService.shown(false)
+        // Nobody looks at the map: the NetBird client stops (after a minute), unless the sharing service needs it.
+        NetBirdLink.release(SCREEN, atOnce = isFinishing)
         super.onStop()
     }
     override fun onLowMemory() { super.onLowMemory(); b.map.onLowMemory() }
@@ -1188,8 +1289,12 @@ class MainActivity : AppCompatActivity() {
         const val PEER_SELECTED = "fm-peers-selected"
         const val PEER_FRESH = "fm-peer"
         const val PEER_OLD = "fm-peer-old"
-        /** How often, at home, the app asks whether the server's address from outside changed. */
+        /** How often the app asks whether the box's addresses from outside, or its NetBird network, changed. */
         const val REMOTE_CHECK_MS = 600_000L
+        /** How long the first answer through NetBird may take. */
+        const val NETBIRD_WAIT_MS = 12_000
+        /** The screen, as a user of the NetBird client. */
+        const val SCREEN = "screen"
         /** How long a finger rests on the map to mark the spot. */
         const val HOLD_MS = 2000L
         /** The map before any server is known: one plain colour. */

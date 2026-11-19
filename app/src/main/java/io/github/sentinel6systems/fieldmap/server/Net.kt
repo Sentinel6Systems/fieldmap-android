@@ -66,6 +66,14 @@ object Net {
         return null
     }
 
+    /** True when the device has a connection that leads to the internet (mobile data, or a Wi-Fi with internet). */
+    fun internet(): Boolean {
+        val cm = manager ?: return true
+        return try {
+            cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        } catch (e: Exception) { true }
+    }
+
     /** Back to the phone's own choice of network: the remote link goes over the internet. */
     fun untie() { if (tied != null) tie(null) }
 

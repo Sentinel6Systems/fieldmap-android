@@ -8,6 +8,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -18,7 +19,24 @@ enum class Route { LAN, REMOTE }
 class RemoteEnd(val endpoints: List<Endpoint>, val client: OkHttpClient) {
     @Volatile
     var current = 0
-    val endpoint: Endpoint get() = endpoints[current.coerceIn(0, endpoints.size - 1)]
+        private set
+
+    /** The port on this device that leads to the gateway through NetBird, while requests go that way. */
+    @Volatile
+    var netbird: Endpoint? = null
+        private set
+
+    /** Where requests for the gateway go now. Null: the box gave no address, and NetBird is not in use. */
+    val endpoint: Endpoint? get() = netbird ?: endpoints.getOrNull(current.coerceIn(0, (endpoints.size - 1).coerceAtLeast(0)))
+
+    /** From now on to the direct address number `i`. */
+    fun direct(i: Int) { netbird = null; current = i }
+
+    /** From now on through NetBird; null goes back to the direct address used before. */
+    fun through(local: Endpoint?) { netbird = local }
+
+    /** The direct addresses, the one that answered last first. */
+    val order: List<Int> get() = if (endpoints.isEmpty()) emptyList() else listOf(current) + endpoints.indices.filter { it != current }
 }
 
 /**
@@ -70,11 +88,12 @@ object Http {
         if (way != Route.REMOTE || home == null || remote == null || url.scheme != home.scheme || url.host != home.host || url.port != home.port) {
             return chain.proceed(request)
         }
+        val to = remote.endpoint ?: throw IOException("The box gave no address for use from outside.")
         // The same path at the gateway. The two headers tell it the home address, so that the
         // tile server writes that into its answers as it does at home.
         val authority = if (home.port == HttpUrl.defaultPort(home.scheme)) home.host else "${home.host}:${home.port}"
         val out = request.newBuilder()
-            .url(url.newBuilder().scheme("https").host(remote.endpoint.host.trim('[', ']')).port(remote.endpoint.port).build())
+            .url(url.newBuilder().scheme("https").host(to.host.trim('[', ']')).port(to.port).build())
             .header("X-Fieldmap-Host", authority)
             .header("X-Fieldmap-Proto", home.scheme)
             .build()
