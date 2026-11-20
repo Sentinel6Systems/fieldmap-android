@@ -48,11 +48,15 @@ object MeshCodec {
         speed = if (moving) fix.speed?.let { (it * 100).roundToInt().coerceAtLeast(0) } else 0, time = (fix.time / 1000).toInt(),
     )))
 
-    /** A shared marker as it is now. */
-    fun marker(m: Marker): ByteArray = MeshMessage.ADAPTER.encode(MeshMessage(marker = MeshMarker(
-        id = m.id, lat = degrees(m.lat), lon = degrees(m.lon), label = m.label, color = rgb(m.color),
-        updated = (ShareJson.millis(m.updated) / 1000).toInt(), by_ = if (m.by.isEmpty()) ByteString.EMPTY else uidBytes(m.by),
-    )))
+    /** A shared marker or arrow as it is now. An arrow goes as `arrow`, which apps from before arrows leave alone. */
+    fun marker(m: Marker): ByteArray {
+        val body = MeshMarker(
+            id = m.id, lat = degrees(m.lat), lon = degrees(m.lon), label = m.label, color = rgb(m.color),
+            updated = (ShareJson.millis(m.updated) / 1000).toInt(), by_ = if (m.by.isEmpty()) ByteString.EMPTY else uidBytes(m.by),
+            end_lat = m.endLat?.let(::degrees), end_lon = m.endLon?.let(::degrees),
+        )
+        return MeshMessage.ADAPTER.encode(if (m.isArrow) MeshMessage(arrow = body) else MeshMessage(marker = body))
+    }
 
     /** A shared marker deleted (or taken back) at `atMs`. */
     fun deleted(id: String, atMs: Long, by: String): ByteArray = MeshMessage.ADAPTER.encode(MeshMessage(marker = MeshMarker(
@@ -81,8 +85,12 @@ object MeshCodec {
         val lon = m.lon / 1e7
         if (abs(lat) > 90 || abs(lon) > 180) return null
         val by = uidText(m.by_).orEmpty()
+        val endLat = m.end_lat?.div(1e7)
+        val endLon = m.end_lon?.div(1e7)
+        val arrow = endLat != null && endLon != null && abs(endLat) <= 90 && abs(endLon) <= 180
         return MeshMarkerChange(m.id, Marker(m.id, lat, lon, m.label.filterNot { it.isISOControl() }.trim().take(Drawings.MAX_LABEL),
-            "#%06x".format(m.color and 0xffffff), shared = true, updated = at, by = by), at)
+            "#%06x".format(m.color and 0xffffff), shared = true, updated = at, by = by,
+            endLat = endLat.takeIf { arrow }, endLon = endLon.takeIf { arrow }), at)
     }
 
     /** What fits one Meshtastic packet. */

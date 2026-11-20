@@ -6,13 +6,17 @@ import org.json.JSONObject
 import kotlin.math.abs
 
 /**
- * A coloured dot with a name. A shared marker is also on the box, for everyone who reaches it:
+ * A coloured dot with a name, or an arrow: the print tool's arrows, from `lat`/`lon` (its start)
+ * to `endLat`/`endLon` (its head). A shared one is also on the box, for everyone who reaches it:
  * `updated` is when it was last changed (UTC, ISO 8601) and `by` the phone that changed it.
  */
 data class Marker(
     val id: String, val lat: Double, val lon: Double, val label: String, val color: String,
     val shared: Boolean = false, val updated: String = "", val by: String = "",
-)
+    val endLat: Double? = null, val endLon: Double? = null,
+) {
+    val isArrow get() = endLat != null && endLon != null
+}
 
 /**
  * Markers to and from the drawings file of fieldmap-server's print tool (print/src/drawings.js):
@@ -31,15 +35,17 @@ object Drawings {
      * own file and the box get it; a file for the print tool or other software does not).
      */
     fun feature(m: Marker, sharing: Boolean = false): JSONObject {
-        val fieldmap = JSONObject().put("kind", "marker").put("label", m.label).put("color", m.color).put("id", m.id)
+        val fieldmap = JSONObject().put("kind", if (m.isArrow) "arrow" else "marker").put("label", m.label).put("color", m.color).put("id", m.id)
         val properties = JSONObject().put("name", m.label).put("stroke", m.color).put("marker-color", m.color).put("fieldmap", fieldmap)
         if (sharing && m.shared) {
             fieldmap.put("shared", true)
             properties.put("by", m.by).put("updated", m.updated)
         }
-        return JSONObject().put("type", "Feature")
-            .put("geometry", JSONObject().put("type", "Point").put("coordinates", JSONArray().put(m.lon).put(m.lat)))
-            .put("properties", properties)
+        // An arrow is a line of two points, from its start to its head, as the print tool writes it.
+        val geometry = if (m.isArrow) JSONObject().put("type", "LineString")
+            .put("coordinates", JSONArray().put(JSONArray().put(m.lon).put(m.lat)).put(JSONArray().put(m.endLon).put(m.endLat)))
+            else JSONObject().put("type", "Point").put("coordinates", JSONArray().put(m.lon).put(m.lat))
+        return JSONObject().put("type", "Feature").put("geometry", geometry).put("properties", properties)
     }
 
     fun toGeoJson(markers: List<Marker>, sharing: Boolean = false): String {
@@ -51,8 +57,8 @@ object Drawings {
     }
 
     /**
-     * Reads the text of a file. Points become markers; lines and areas (the print tool's arrows
-     * and shapes) are counted in `skipped`. Throws IllegalArgumentException with a plain message
+     * Reads the text of a file. Points become markers, lines of two points arrows (from the first
+     * point to the second); areas (the print tool's shapes) and longer lines are counted in `skipped`. Throws IllegalArgumentException with a plain message
      * when the text is not GeoJSON at all. newId: makes the id of a marker that has none.
      */
     fun fromGeoJson(text: String, defaultColor: String, newId: () -> String): Loaded {
@@ -86,6 +92,13 @@ object Drawings {
                 "MultiPoint" -> for (i in 0 until (coords?.length() ?: 0)) {
                     point(coords?.optJSONArray(i))?.let { markers += Marker(newId(), it.first, it.second, name, color) } ?: skipped++
                 }
+                "LineString" -> arrow(coords)?.let { (a, b) ->
+                    markers += Marker(id ?: newId(), a.first, a.second, name, color, shared, if (shared) p.optString("updated") else "",
+                        if (shared) p.optString("by") else "", b.first, b.second)
+                } ?: skipped++
+                "MultiLineString" -> for (i in 0 until (coords?.length() ?: 0)) {
+                    arrow(coords?.optJSONArray(i))?.let { (a, b) -> markers += Marker(newId(), a.first, a.second, name, color, endLat = b.first, endLon = b.second) } ?: skipped++
+                }
                 else -> skipped++
             }
         }
@@ -103,11 +116,19 @@ object Drawings {
         return lat to if (abs(lon) <= 180) lon else ((lon + 540) % 360 + 360) % 360 - 180
     }
 
-    /** The name the next new marker gets: P1, P2, ... (the first number not yet used). */
-    fun nextName(markers: List<Marker>): String {
-        val used = markers.mapNotNull { Regex("^P(\\d+)$").find(it.label)?.groupValues?.get(1)?.toIntOrNull() }.toSet()
-        var n = markers.size + 1
+    /** An arrow's two ends from a line: exactly two points, else null. */
+    private fun arrow(c: JSONArray?): Pair<Pair<Double, Double>, Pair<Double, Double>>? {
+        if (c == null || c.length() != 2) return null
+        return (point(c.optJSONArray(0)) ?: return null) to (point(c.optJSONArray(1)) ?: return null)
+    }
+
+    /** The name the next new marker gets: P1, P2, ... (the first number not yet used); A1, A2, ... for an arrow. */
+    fun nextName(markers: List<Marker>, arrow: Boolean = false): String {
+        val prefix = if (arrow) "A" else "P"
+        val same = markers.filter { it.isArrow == arrow }
+        val used = same.mapNotNull { Regex("^$prefix(\\d+)$").find(it.label)?.groupValues?.get(1)?.toIntOrNull() }.toSet()
+        var n = same.size + 1
         while (n in used) n++
-        return "P$n"
+        return "$prefix$n"
     }
 }

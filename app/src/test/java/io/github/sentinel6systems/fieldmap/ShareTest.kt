@@ -3,6 +3,7 @@ package io.github.sentinel6systems.fieldmap
 import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.MarkerStore
+import io.github.sentinel6systems.fieldmap.data.Palette
 import io.github.sentinel6systems.fieldmap.share.Ageing
 import io.github.sentinel6systems.fieldmap.share.Fix
 import io.github.sentinel6systems.fieldmap.share.MeshChannel
@@ -118,6 +119,7 @@ class ShareTest {
              "properties":{"name":"Hut","marker-color":"#2a9d3f","by":"phone-aaaa","updated":"$t2","fieldmap":{"kind":"marker","label":"Hut","color":"#2a9d3f","id":"m-000001"}}},
             {"type":"Feature","id":"no","geometry":{"type":"Point","coordinates":[1,2]},"properties":{}},
             {"type":"Feature","id":"m-000003","geometry":{"type":"LineString","coordinates":[[1,2],[3,4]]},"properties":{}},
+            {"type":"Feature","id":"m-000005","geometry":{"type":"LineString","coordinates":[[1,2],[3,4],[5,6]]},"properties":{}},
             {"type":"Feature","geometry":{"type":"Point","coordinates":[3,4]},"properties":{"fieldmap":{"kind":"marker","label":"By its own id","color":"#111111","id":"m-000004"}}}],
           "removed":["m-000009", 5]}"""
         val s = ShareJson.state(text)!!
@@ -133,6 +135,8 @@ class ShareTest {
         assertEquals(
             listOf(
                 Marker("m-000001", 60.0, 10.5, "Hut", "#2a9d3f", shared = true, updated = t2, by = "phone-aaaa"),
+                // A line of two points is an arrow; one of three is nothing the app knows.
+                Marker("m-000003", 2.0, 1.0, "", Palette.DEFAULT, shared = true, endLat = 4.0, endLon = 3.0),
                 Marker("m-000004", 4.0, 3.0, "By its own id", "#111111", shared = true),
             ),
             s.markers,

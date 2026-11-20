@@ -15,6 +15,9 @@ message MeshMessage {
     MeshMarker marker = 2;
     MeshText text = 3;
     MeshDelivered delivered = 4;
+    // An arrow, as a MeshMarker with its head. Apart from `marker` so that an app from before
+    // arrows does not take it for a plain marker (and pass that on).
+    MeshMarker arrow = 5;
   }
 }
 
@@ -33,7 +36,7 @@ message MeshPosition {
   uint32 time = 9;           // when the fix was taken, seconds since 1970
 }
 
-// A shared marker as it is now, or that it was deleted. The last change wins, by `updated`.
+// A shared marker or arrow as it is now, or that it was deleted. The last change wins, by `updated`.
 message MeshMarker {
   string id = 1;
   sfixed32 lat = 2;
@@ -43,6 +46,9 @@ message MeshMarker {
   uint32 updated = 6;        // seconds since 1970
   bytes by = 7;              // the uid of the device that changed it last (as in MeshPosition)
   bool deleted = 8;
+  // An arrow (the print tool's): lat/lon is its start, these its head.
+  optional sfixed32 end_lat = 9;
+  optional sfixed32 end_lon = 10;
 }
 
 // A short text message, to one device or to everybody. Sent straight to the radio of the device

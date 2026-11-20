@@ -162,7 +162,9 @@ class Panels(private val a: MainActivity) {
         // With a panel open only the zoom buttons stay on the map.
         for (v in listOf(a.b.position, a.b.menu, a.b.foot)) v.visibility = if (open) View.GONE else View.VISIBLE
         a.b.frame.visibility = if (next == Screen.SAVE) View.VISIBLE else View.GONE
-        a.b.panelTitle.text = next.title
+        // A marker's panel is an arrow's too.
+        a.b.panelTitle.text = if ((next == Screen.MARKER || next == Screen.MOVE) && a.selected?.let { a.markers.get(it) }?.isArrow == true)
+            (if (next == Screen.MARKER) "Arrow" else "Move Arrow") else next.title
         val hasBack = next.parent != null || (next == Screen.MARKER && markerFromList) || (next == Screen.PEER && peerFromList) ||
             (next == Screen.NODE && nodeFromList) || next == Screen.CHAT
         a.b.panelBack.visibility = if (hasBack) View.VISIBLE else View.GONE
@@ -201,7 +203,11 @@ class Panels(private val a: MainActivity) {
             Screen.SAVE -> save()
             Screen.MARKERS -> markers()
             Screen.MARKER -> marker()
-            Screen.MOVE -> add(a.body("Tap the marker's new location on the map. You can move and zoom the map first.", top = 12))
+            Screen.MOVE -> add(a.body(when {
+                a.selected?.let { a.markers.get(it) }?.isArrow != true -> "Tap the marker's new location on the map. You can move and zoom the map first."
+                a.movingEnd -> "Tap the arrow's new head (end) on the map. You can move and zoom the map first."
+                else -> "Tap the arrow's new start on the map. You can move and zoom the map first."
+            }, top = 12))
             Screen.SHARING -> sharing()
             Screen.MESH -> mesh()
             Screen.NODE -> node()
@@ -397,9 +403,10 @@ class Panels(private val a: MainActivity) {
 
     private fun markers() {
         val list = a.markers.markers
-        if (list.isEmpty()) add(a.body("No markers. To add one, touch and hold the map for 2 seconds. To add one at your location, touch and hold the blue dot.", muted = true, top = 12))
+        if (list.isEmpty()) add(a.body("No markers. To add one, touch and hold the map for 2 seconds, then lift your finger. To draw an arrow, " +
+            "keep holding and drag to where it points. To add a marker at your location, touch and hold the blue dot.", muted = true, top = 12))
         for (m in list.asReversed()) {
-            val where = a.coords(m.lat, m.lon, brief = true)
+            val where = if (m.isArrow) "Arrow · " + a.arrowDetail(m) else a.coords(m.lat, m.lon, brief = true)
             add(a.row(m.label.ifEmpty { "Unnamed" }, where + if (m.shared) " · Shared" else "", dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
         }
         add(a.label("Import / Export"))
@@ -434,29 +441,41 @@ class Panels(private val a: MainActivity) {
         })
         mark(m.color)
 
-        add(a.label("Location"))
-        val grid = a.mono("", 18f, muted = false)
-        val far = a.mono("")
-        fun place() {
-            val now = a.markers.get(m.id) ?: return
-            grid.text = a.coords(now.lat, now.lon)
-            far.text = a.fromHere(now.lat, now.lon).orEmpty()
+        if (m.isArrow) {
+            // An arrow: how long and which way, then where it starts and where it points.
+            add(a.label("Length and Bearing"))
+            add(a.mono(a.arrowDetail(m), 18f, muted = false))
+            add(a.label("Start"))
+            add(a.mono(a.coords(m.lat, m.lon), 16f, muted = false))
+            add(a.label("Head"))
+            add(a.mono(a.coords(m.endLat!!, m.endLon!!), 16f, muted = false))
+        } else {
+            add(a.label("Location"))
+            val grid = a.mono("", 18f, muted = false)
+            val far = a.mono("")
+            grid.text = a.coords(m.lat, m.lon)
+            far.text = a.fromHere(m.lat, m.lon).orEmpty()
             far.visibility = if (far.text.isEmpty()) View.GONE else View.VISIBLE
+            add(grid)
+            add(far)
         }
-        place()
-        add(grid)
-        add(far)
 
         // One choice, off until the person makes it. A server known to have no sharing does not offer it.
         if (m.shared || a.sharing.box != Sharing.Box.NONE) {
             markerShare = a.check("Share with All Devices", shareDetail(m), m.shared) { on -> hideKeyboard(); a.shareMarker(m.id, on); build() }
                 .apply { layoutParams = lp(top = a.dp(10)) }.also(::add)
         }
-        add(a.buttons(
-            a.button("Delete", Kind.DANGER) { if (a.markers.get(m.id)?.shared == true) confirmDeleteShared(m.id) else { a.deleteMarker(m.id); back() } },
-            a.button("Move") { show(Screen.MOVE) },
-            top = 16,
-        ))
+        val delete = a.button("Delete", Kind.DANGER) { if (a.markers.get(m.id)?.shared == true) confirmDeleteShared(m.id) else { a.deleteMarker(m.id); back() } }
+        if (m.isArrow) {
+            add(a.buttons(
+                a.button("Move Start") { a.movingEnd = false; show(Screen.MOVE) },
+                a.button("Move End") { a.movingEnd = true; show(Screen.MOVE) },
+                top = 16,
+            ))
+            add(a.buttons(delete, top = 8))
+        } else {
+            add(a.buttons(delete, a.button("Move") { show(Screen.MOVE) }, top = 16))
+        }
     }
 
     private fun shareDetail(m: Marker): String = when {

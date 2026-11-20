@@ -1,5 +1,13 @@
 package io.github.sentinel6systems.fieldmap.ui
 
+import org.maplibre.android.style.layers.PropertyFactory.textMaxWidth
+import org.maplibre.android.style.layers.PropertyFactory.textRotationAlignment
+import org.maplibre.android.style.layers.PropertyFactory.textRotate
+import org.maplibre.android.style.layers.PropertyFactory.lineJoin
+import org.maplibre.android.style.layers.PropertyFactory.lineCap
+import kotlin.math.roundToInt
+import io.github.sentinel6systems.fieldmap.geo.Arrows
+import org.maplibre.geojson.LineString
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
@@ -169,6 +177,8 @@ class MainActivity : AppCompatActivity() {
         private set
     /** The other phone whose panel is open. */
     internal var selectedPeer: String? = null
+    /** Move in an arrow's panel moves its head (true) or its start (false). */
+    internal var movingEnd = false
     /** The other Meshtastic radio whose panel is open (its node number). */
     internal var selectedNode: Int? = null
         private set
@@ -217,7 +227,7 @@ class MainActivity : AppCompatActivity() {
         b.map.addOnDidFailLoadingMapListener { pendingStyle?.let(::styleMissing) }
         b.map.getMapAsync(::setUpMap)
         @SuppressLint("ClickableViewAccessibility")       // watches only; the map still gets every touch
-        b.map.setOnTouchListener { _, e -> watchHold(e); false }
+        b.map.setOnTouchListener { _, e -> watchHold(e) }
 
         b.zoomIn.setOnClickListener { zoomBy(1.0) }
         b.zoomOut.setOnClickListener { zoomBy(-1.0) }
@@ -343,6 +353,19 @@ class MainActivity : AppCompatActivity() {
         st.addSource(GeoJsonSource(MARKERS, markersOnMap()))
         add(LineLayer("fm-areas-case", AREAS).withProperties(lineColor(Color.WHITE), lineWidth(4.5f), lineOpacity(0.7f)))
         add(LineLayer("fm-areas", AREAS).withProperties(lineColor("#3f7d1c"), lineWidth(2f), lineDasharray(arrayOf(3f, 2f))))
+        // The print tool's arrows: a line in the colour with a white halo, a head of two strokes,
+        // the name, length and bearing along it; the ends show while one is chosen. Under the dots.
+        st.addSource(GeoJsonSource(ARROWS, arrowsOnMap()))
+        st.addSource(GeoJsonSource(DRAG, FeatureCollection.fromFeatures(emptyList())))
+        val shaft = Expression.match(Expression.get("part"), Expression.literal(false), Expression.stop("line", true), Expression.stop("head", true))
+        add(LineLayer("fm-arrows-halo", ARROWS).withProperties(lineColor(Color.WHITE), lineWidth(6f), lineOpacity(0.6f), lineCap(Property.LINE_CAP_ROUND),
+            lineJoin(Property.LINE_JOIN_ROUND)).withFilter(shaft))
+        add(LineLayer(ARROW_LINES, ARROWS).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineCap(Property.LINE_CAP_ROUND),
+            lineJoin(Property.LINE_JOIN_ROUND)).withFilter(shaft))
+        add(CircleLayer(ARROW_ENDS, ARROWS).withProperties(circleRadius(7f), circleColor(Color.WHITE), circleStrokeColor(Expression.get("color")),
+            circleStrokeWidth(3f)).withFilter(arrowEndsFilter()))
+        // While an arrow is being drawn: a dashed line from where the finger held to where it is.
+        add(LineLayer("fm-drag", DRAG).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineDasharray(arrayOf(2f, 1.5f))))
         // The dots of the print tool: the colour, a white edge; a thin dark line keeps a white
         // dot visible on a white map.
         add(CircleLayer("fm-markers-ring", MARKERS).withProperties(circleRadius(12.5f), circleColor("#111111"), circleOpacity(0.55f)))
@@ -354,6 +377,13 @@ class MainActivity : AppCompatActivity() {
         // Names need a font the style has (and so one that is saved with an area).
         val fonts = st.layers.mapNotNull { (it as? SymbolLayer)?.textFont?.value }.filter { it.isNotEmpty() }
         val font = fonts.firstOrNull { f -> f[0].contains("bold", true) && !f[0].contains("italic", true) } ?: fonts.firstOrNull()
+        if (font != null) st.addLayerBelow(
+            SymbolLayer("fm-arrows-label", ARROWS).withProperties(
+                textField(Expression.get("label")), textFont(font), textSize(12f), textOffset(arrayOf(0f, -1f)),
+                textAllowOverlap(true), textIgnorePlacement(true), textRotationAlignment(Property.TEXT_ROTATION_ALIGNMENT_MAP),
+                textRotate(Expression.get("rotate")), textMaxWidth(60f), textColor("#111111"), textHaloColor(Color.WHITE), textHaloWidth(1.6f),
+            ).withFilter(Expression.eq(Expression.get("part"), Expression.literal("label"))), "fm-markers-ring",
+        )
         if (font != null) add(
             SymbolLayer("fm-markers-name", MARKERS).withProperties(
                 textField(Expression.get("label")), textFont(font), textSize(15f), textOffset(arrayOf(1.1f, 0f)),
@@ -474,8 +504,52 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectedFilter() = Expression.eq(Expression.get("id"), Expression.literal(selected ?: ""))
 
+    /** An arrow's ends show while it is the one chosen. */
+    private fun arrowEndsFilter() = Expression.all(Expression.eq(Expression.get("part"), Expression.literal("end")), selectedFilter())
+
+    /** An arrow's length and bearing, as on the print tool: "350 m · 042°T". */
+    private fun arrowText(m: Marker): String {
+        val (distance, bearing) = Arrows.inverse(m.lat, m.lon, m.endLat ?: m.lat, m.endLon ?: m.lon)
+        return distanceText(distance) + String.format(Locale.US, " · %03d°T", bearing.roundToInt() % 360)
+    }
+
+    /** Feet and miles, or meters and kilometers. */
+    internal fun distanceText(meters: Double): String = if (imperial) {
+        val miles = meters / 1609.344
+        if (miles < 0.1) "${(meters / 0.3048).toInt()} ft" else String.format(Locale.US, "%.1f mi", miles)
+    } else {
+        if (meters < 1000) "${meters.toInt()} m" else String.format(Locale.US, "%.1f km", meters / 1000)
+    }
+
+    /** An arrow's length and bearing, for its panel and the Markers list. */
+    internal fun arrowDetail(m: Marker): String = arrowText(m)
+
+    /** The arrows: line, head, label at the middle, and the two ends (shown for the chosen one). */
+    private fun arrowsOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
+        markers.markers.filter { it.isArrow }.flatMap { m ->
+            val endLat = m.endLat!!
+            val endLon = m.endLon!!
+            val (h1, h2) = Arrows.head(m.lat, m.lon, endLat, endLon)
+            val bearing = Arrows.inverse(m.lat, m.lon, endLat, endLon).second
+            fun part(f: Feature, name: String) = f.apply {
+                addStringProperty("id", m.id); addStringProperty("color", m.color); addStringProperty("part", name)
+            }
+            listOf(
+                part(Feature.fromGeometry(LineString.fromLngLats(listOf(Point.fromLngLat(m.lon, m.lat), Point.fromLngLat(endLon, endLat)))), "line"),
+                part(Feature.fromGeometry(LineString.fromLngLats(listOf(Point.fromLngLat(h1.second, h1.first), Point.fromLngLat(endLon, endLat),
+                    Point.fromLngLat(h2.second, h2.first)))), "head"),
+                part(Feature.fromGeometry(Point.fromLngLat((m.lon + endLon) / 2, (m.lat + endLat) / 2)), "label").apply {
+                    addStringProperty("label", (if (m.label.isNotEmpty()) m.label + "  " else "") + arrowText(m).replace(" · ", "  "))
+                    addNumberProperty("rotate", Arrows.labelAngle(bearing))
+                },
+                part(Feature.fromGeometry(Point.fromLngLat(m.lon, m.lat)), "end"),
+                part(Feature.fromGeometry(Point.fromLngLat(endLon, endLat)), "end"),
+            )
+        },
+    )
+
     private fun markersOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
-        markers.markers.map { m ->
+        markers.markers.filter { !it.isArrow }.map { m ->
             Feature.fromGeometry(Point.fromLngLat(m.lon, m.lat)).apply {
                 addStringProperty("id", m.id)
                 addStringProperty("label", m.label)
@@ -898,16 +972,22 @@ class MainActivity : AppCompatActivity() {
         openMarker(marker.id, fromList = false)
     }
 
-    // Holding a finger on the map for two seconds marks the spot under it: the one way to make
-    // a marker. Long enough not to happen by accident while moving the map; a ring around the
-    // finger shows it filling up.
+    // Holding a finger on the map for two seconds, the one way to make a marker or an arrow. Long
+    // enough not to happen by accident while moving the map; a ring around the finger shows it
+    // filling up. Then the finger lifted where it is makes a marker there; the finger dragged on
+    // draws an arrow from there to where it is lifted.
     private var holdAt: PointF? = null
+    private var holdSpot: LatLng? = null          // the hold is done: a marker or an arrow starts here
+    private var dragging = false
     private val holdDone = Runnable {
-        val at = holdAt
-        endHold()
-        val spot = at?.let(::spotAt) ?: return@Runnable
+        val at = holdAt ?: return@Runnable
+        b.hold.stop()
+        holdSpot = spotAt(at) ?: return@Runnable endHold()
         b.map.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        mark(spot.latitude, spot.longitude)
+        // From here the finger draws: the map lets go of it, and does not move under it.
+        val cancel = MotionEvent.obtain(SystemClock.uptimeMillis(), SystemClock.uptimeMillis(), MotionEvent.ACTION_CANCEL, at.x, at.y, 0)
+        b.map.onTouchEvent(cancel)
+        cancel.recycle()
     }
 
     /** The point under a finger. A finger on the position symbol means "where I am": the position itself. */
@@ -918,23 +998,63 @@ class MainActivity : AppCompatActivity() {
         return m.projection.fromScreenLocation(at)
     }
 
-    private fun watchHold(e: MotionEvent) {
+    /** Watches a finger on the map. Returns true while it draws (the map then does not see it). */
+    private fun watchHold(e: MotionEvent): Boolean {
+        val start = holdSpot
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> if (map != null && panels.screen != Screen.SAVE && panels.screen != Screen.MOVE) {
                 holdAt = PointF(e.x, e.y)
                 b.hold.start(e.x, e.y, HOLD_MS)
                 b.map.postDelayed(holdDone, HOLD_MS)
             }
-            // A finger does not keep perfectly still for two seconds; one that travels is moving the map.
-            MotionEvent.ACTION_MOVE -> holdAt?.let { if (hypot(e.x - it.x, e.y - it.y) > dp(14)) endHold() }
-            else -> endHold()                       // lifted, or a second finger
+            MotionEvent.ACTION_MOVE -> {
+                val at = holdAt ?: return false
+                if (start == null) {
+                    // A finger does not keep perfectly still for two seconds; one that travels is moving the map.
+                    if (hypot(e.x - at.x, e.y - at.y) > dp(14)) endHold()
+                    return false
+                }
+                if (!dragging && hypot(e.x - at.x, e.y - at.y) > dp(ARROW_MIN_DP)) dragging = true
+                if (dragging) map?.projection?.fromScreenLocation(PointF(e.x, e.y))?.let { drawDrag(start, it) }
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (start == null) { endHold(); return false }
+                val end = if (dragging) spotAt(PointF(e.x, e.y)) else null
+                endHold()
+                if (end != null) arrow(start, end) else mark(start.latitude, start.longitude)
+                return true
+            }
+            else -> {                               // a second finger, or the system took the touch
+                val drawing = start != null
+                endHold()
+                return drawing
+            }
         }
+        return false
     }
 
     private fun endHold() {
         holdAt = null
+        holdSpot = null
+        dragging = false
         b.map.removeCallbacks(holdDone)
         b.hold.stop()
+        style?.getSourceAs<GeoJsonSource>(DRAG)?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+    }
+
+    private fun drawDrag(from: LatLng, to: LatLng) {
+        val line = Feature.fromGeometry(LineString.fromLngLats(listOf(Point.fromLngLat(from.longitude, from.latitude), Point.fromLngLat(to.longitude, to.latitude))))
+        line.addStringProperty("color", prefs.color)
+        style?.getSourceAs<GeoJsonSource>(DRAG)?.setGeoJson(FeatureCollection.fromFeature(line))
+    }
+
+    /** A new arrow from where the finger held to where it was lifted. */
+    private fun arrow(from: LatLng, to: LatLng) {
+        b.map.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        val m = markers.addArrow(from.latitude to from.longitude, to.latitude to to.longitude, prefs.color)
+        markersChanged()
+        openMarker(m.id, fromList = false)
     }
 
     private fun tapped(at: LatLng): Boolean {
@@ -944,7 +1064,10 @@ class MainActivity : AppCompatActivity() {
         // After Move in a marker's panel, the next tap is the marker's new position.
         if (panels.screen == Screen.MOVE) {
             val spot = spotAt(p) ?: return true
-            selected?.let(markers::get)?.let { updateMarker(it.copy(lat = spot.latitude, lon = spot.longitude)) }
+            selected?.let(markers::get)?.let {
+                // An arrow moves the end its panel chose: the start or the head.
+                updateMarker(if (it.isArrow && movingEnd) it.copy(endLat = spot.latitude, endLon = spot.longitude) else it.copy(lat = spot.latitude, lon = spot.longitude))
+            }
             b.map.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             panels.show(Screen.MARKER)
             return true
@@ -952,6 +1075,7 @@ class MainActivity : AppCompatActivity() {
         val reach = dp(26).toFloat()                 // a gloved finger is not exact
         val around = RectF(p.x - reach, p.y - reach, p.x + reach, p.y + reach)
         m.queryRenderedFeatures(around, MARKER_DOTS).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
+        m.queryRenderedFeatures(around, ARROW_LINES).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
         m.queryRenderedFeatures(around, PEER_SYMBOLS).firstOrNull()?.getStringProperty("id")?.let { openPeer(it, fromList = false); return true }
         m.queryRenderedFeatures(around, NODE_SYMBOLS).firstOrNull()?.getNumberProperty("num")?.let { openNode(it.toInt(), fromList = false); return true }
         return false
@@ -961,13 +1085,16 @@ class MainActivity : AppCompatActivity() {
         val marker = markers.get(id) ?: return
         select(id)
         panels.showMarker(fromList)
-        // Bring it into view, unless the map is following the phone.
-        if (follow == Follow.FREE) b.root.post { map?.animateCamera(CameraUpdateFactory.newLatLng(LatLng(marker.lat, marker.lon)), 400) }
+        // Bring it into view (an arrow by its middle), unless the map is following the phone.
+        val lat = if (marker.isArrow) (marker.lat + marker.endLat!!) / 2 else marker.lat
+        val lon = if (marker.isArrow) (marker.lon + marker.endLon!!) / 2 else marker.lon
+        if (follow == Follow.FREE) b.root.post { map?.animateCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lon)), 400) }
     }
 
     internal fun select(id: String?) {
         selected = id
         style?.getLayerAs<CircleLayer>(MARKER_SELECTED)?.setFilter(selectedFilter())
+        style?.getLayerAs<CircleLayer>(ARROW_ENDS)?.setFilter(arrowEndsFilter())
     }
 
     internal fun updateMarker(marker: Marker) {
@@ -1108,6 +1235,7 @@ class MainActivity : AppCompatActivity() {
 
     internal fun markersChanged() {
         style?.getSourceAs<GeoJsonSource>(MARKERS)?.setGeoJson(markersOnMap())
+        style?.getSourceAs<GeoJsonSource>(ARROWS)?.setGeoJson(arrowsOnMap())
     }
 
     /** Distance and true bearing from the phone to a place, in words; null without a position. `brief`: for one line of a list. */
@@ -1117,12 +1245,7 @@ class MainActivity : AppCompatActivity() {
         Location.distanceBetween(here.latitude, here.longitude, lat, lon, out)
         if (out[0] < 5) return "At your location"
         val bearing = ((out[1] + 360) % 360).toInt()
-        val far = if (imperial) {
-            val miles = out[0] / 1609.344
-            if (miles < 0.1) "${(out[0] / 0.3048).toInt()} ft" else String.format(Locale.US, "%.1f mi", miles)
-        } else {
-            if (out[0] < 1000) "${out[0].toInt()} m" else String.format(Locale.US, "%.1f km", out[0] / 1000)
-        }
+        val far = distanceText(out[0].toDouble())
         return String.format(Locale.US, if (brief) "%s, bearing %03d°" else "%s from you, bearing %03d° true", far, bearing)
     }
 
@@ -1404,6 +1527,10 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val AREAS = "fm-areas"
         const val MARKERS = "fm-markers"
+        const val ARROWS = "fm-arrows"
+        const val ARROW_LINES = "fm-arrows-line"
+        const val ARROW_ENDS = "fm-arrows-end"
+        const val DRAG = "fm-drag"
         const val MARKER_DOTS = "fm-markers-dot"
         const val MARKER_SELECTED = "fm-markers-selected"
         const val PEERS = "fm-peers"
@@ -1426,6 +1553,8 @@ class MainActivity : AppCompatActivity() {
         const val SCREEN = "screen"
         /** How long a finger rests on the map to mark the spot. */
         const val HOLD_MS = 2000L
+        /** How far a finger must travel after the hold to draw an arrow rather than make a marker. */
+        const val ARROW_MIN_DP = 24
         /** The map before any server is known: one plain colour. */
         const val BLANK = """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#000000"}}]}"""
     }

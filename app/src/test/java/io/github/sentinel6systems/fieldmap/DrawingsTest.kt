@@ -44,15 +44,15 @@ class DrawingsTest {
     }
 
     @Test
-    fun `a file of the print tool gives its markers and counts the rest`() {
+    fun `a file of the print tool gives its markers and arrows and counts the rest`() {
         // As written by the print tool: a marker, an arrow and a polygon.
         val text = """{"type":"FeatureCollection","fieldmap":{"format":"fieldmap-drawings","version":1,"title":"Test"},"features":[
           {"type":"Feature","geometry":{"type":"Point","coordinates":[10.5,60]},"properties":{"name":"Hut","stroke":"#2a9d3f","marker-color":"#2a9d3f","fieldmap":{"kind":"marker","label":"Hut","color":"#2a9d3f"}}},
           {"type":"Feature","geometry":{"type":"LineString","coordinates":[[10,60],[10.1,60.1]]},"properties":{"name":"","fieldmap":{"kind":"arrow","label":"","color":"#111111"}}},
           {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[10,60],[10.1,60],[10.1,60.1],[10,60]]]},"properties":{"fieldmap":{"kind":"polygon","label":"Zone","color":"#6f2dbd"}}}]}"""
         val loaded = Drawings.fromGeoJson(text, "#000000", ::id)
-        assertEquals(listOf(Marker("new1", 60.0, 10.5, "Hut", "#2a9d3f")), loaded.markers)
-        assertEquals(2, loaded.skipped)
+        assertEquals(listOf(Marker("new1", 60.0, 10.5, "Hut", "#2a9d3f"), Marker("new2", 60.0, 10.0, "", "#111111", endLat = 60.1, endLon = 10.1)), loaded.markers)
+        assertEquals(1, loaded.skipped)
     }
 
     @Test

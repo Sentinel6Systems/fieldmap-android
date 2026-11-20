@@ -187,6 +187,9 @@ object ShareMerge {
             when {
                 // Taken back here, kept on the phone: the box is still to be told.
                 there != null && m.id in deleted -> out += m
+                // A plain marker never takes the place of an arrow: it is a copy from an app that does
+                // not know arrows. The arrow stays, and a shared one goes to the box again.
+                there != null && m.isArrow && !there.isArrow -> { out += m; if (m.shared) put += m.id }
                 // Changed on both sides: this phone's change stays only if it is the later one.
                 there != null -> if (m.shared && m.id in put && ShareJson.millis(m.updated) >= ShareJson.millis(there.updated)) out += m else { out += there; put -= m.id }
                 !m.shared -> out += m

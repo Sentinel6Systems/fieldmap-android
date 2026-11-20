@@ -158,7 +158,7 @@ object MeshShare {
             if ((last == null || now() - last > NEW_AFTER_MS) && Messaging.shown) announceLater()
             onPeers()
         }
-        message.marker?.let { m ->
+        (message.marker ?: message.arrow)?.let { m ->
             val change = MeshCodec.change(m) ?: return@let
             if (change.marker?.by == prefs.uid) return@let
             markersHeard[change.id] = now()
