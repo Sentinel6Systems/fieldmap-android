@@ -29,7 +29,13 @@ import kotlin.math.floor
 data class MeshNode(
     val num: Int, val name: String, val heard: Long, val hops: Int?, val snr: Float, val channel: Int,
     val lat: Double? = null, val lon: Double? = null, val precision: Int = 0,
+    /** What the radio says about itself, when it said it: short name, hardware model, battery percent (101 = external power). */
+    val shortName: String = "", val model: String = "", val battery: Int? = null,
 ) {
+    /** Takes what a User message says: names and model. */
+    fun user(u: User?): MeshNode = if (u == null) this else copy(name = u.long_name.ifEmpty { name }, shortName = u.short_name.ifEmpty { shortName },
+        model = u.hw_model.takeIf { it != org.meshtastic.proto.HardwareModel.UNSET }?.name ?: model)
+
     /** Meters around the position where the radio may be: 0 when it gives its exact position. */
     val radius: Double get() = if (precision in 1..31) 23_300.0 / Math.pow(2.0, (precision - 10).toDouble()) else 0.0
 
@@ -71,7 +77,8 @@ data class RadioState(
         m.node_info?.let { n ->
             if (n.num == s.nodeNum) s = s.copy(owner = n.user ?: s.owner, battery = n.device_metrics?.battery_level ?: s.battery)
             else if (n.num != 0) s = s.copy(nodes = s.nodes + (n.num to MeshNode(n.num, n.user?.long_name.orEmpty().ifEmpty { nodeName(n.num) },
-                n.last_heard.toLong() and 0xffffffffL, n.hops_away, n.snr, n.channel).at(n.position)))
+                n.last_heard.toLong() and 0xffffffffL, n.hops_away, n.snr, n.channel).at(n.position).user(n.user)
+                .copy(battery = n.device_metrics?.battery_level)))
         }
         m.config?.lora?.let { s = s.copy(lora = it) }
         m.config?.bluetooth?.let { s = s.copy(bluetooth = it) }
@@ -84,14 +91,13 @@ data class RadioState(
     fun heard(p: MeshPacket, now: Long): RadioState {
         if (p.from == 0 || p.from == nodeNum) return this
         val before = nodes[p.from]
-        var name = before?.name ?: nodeName(p.from)
         val d = p.decoded
-        if (d != null && d.portnum == PortNum.NODEINFO_APP) {
-            try { User.ADAPTER.decode(d.payload).long_name.takeIf { it.isNotEmpty() }?.let { name = it } } catch (e: Exception) { /* not a User */ }
-        }
         val hops = if (p.hop_start > 0) (p.hop_start - p.hop_limit).coerceAtLeast(0) else before?.hops
-        var node = MeshNode(p.from, name, now, hops, if (hops == 0) p.rx_snr else before?.snr ?: p.rx_snr, p.channel,
-            before?.lat, before?.lon, before?.precision ?: 0)
+        var node = (before ?: MeshNode(p.from, nodeName(p.from), now, hops, p.rx_snr, p.channel))
+            .copy(heard = now, hops = hops, snr = if (hops == 0) p.rx_snr else before?.snr ?: p.rx_snr, channel = p.channel)
+        if (d != null && d.portnum == PortNum.NODEINFO_APP) {
+            node = node.user(try { User.ADAPTER.decode(d.payload) } catch (e: Exception) { null })
+        }
         if (d != null && d.portnum == PortNum.POSITION_APP) {
             node = node.at(try { Position.ADAPTER.decode(d.payload) } catch (e: Exception) { null })
         }

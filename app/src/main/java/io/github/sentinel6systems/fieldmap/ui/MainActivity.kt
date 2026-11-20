@@ -168,6 +168,8 @@ class MainActivity : AppCompatActivity() {
         private set
     /** The other phone whose panel is open. */
     internal var selectedPeer: String? = null
+    /** The other Meshtastic radio whose panel is open (its node number). */
+    internal var selectedNode: Int? = null
         private set
 
     private val ticker = Handler(Looper.getMainLooper())
@@ -357,18 +359,18 @@ class MainActivity : AppCompatActivity() {
             ),
         )
         // Other Meshtastic radios that the mesh radio hears and that say where they are: they may
-        // pass our packets on. A triangle under the markers and the people, and a faint circle
+        // pass our packets on. A green triangle under the markers and the people (name only: the rest is in its panel), and a faint circle
         // where a radio gives only a rough position.
         st.addImage(NODE, nodeSymbol())
         st.addSource(GeoJsonSource(NODES, nodesOnMap()))
-        st.addLayerBelow(FillLayer(NODE_AREAS, NODES).withProperties(fillColor("#5c4d7d"), fillOpacity(0.08f), fillOutlineColor("#5c4d7d"))
+        st.addLayerBelow(FillLayer(NODE_AREAS, NODES).withProperties(fillColor(MESHTASTIC_GREEN), fillOpacity(0.12f), fillOutlineColor(MESHTASTIC_GREEN))
             .withFilter(Expression.eq(Expression.get("kind"), Expression.literal("area"))), MARKER_DOTS)
         st.addLayerBelow(SymbolLayer(NODE_SYMBOLS, NODES).withProperties(iconImage(NODE), iconAllowOverlap(true), iconIgnorePlacement(true))
             .withFilter(Expression.eq(Expression.get("kind"), Expression.literal("node"))), MARKER_DOTS)
         if (font != null) st.addLayerBelow(
             SymbolLayer(NODE_NAMES, NODES).withProperties(
                 textField(Expression.get("name")), textFont(font), textSize(12f), textOffset(arrayOf(1.0f, 0f)),
-                textAnchor(Property.TEXT_ANCHOR_LEFT), textAllowOverlap(false), textColor("#3d3352"), textHaloColor(Color.WHITE), textHaloWidth(1.6f),
+                textAnchor(Property.TEXT_ANCHOR_LEFT), textAllowOverlap(false), textColor("#1e6b3c"), textHaloColor(Color.WHITE), textHaloWidth(1.6f),
             ).withFilter(Expression.eq(Expression.get("kind"), Expression.literal("node"))), MARKER_DOTS,
         )
         // The other phones: a diamond with the name beside it, so that nobody takes one for a
@@ -411,7 +413,7 @@ class MainActivity : AppCompatActivity() {
         return bitmap
     }
 
-    /** Another Meshtastic radio: a small triangle (a mast), not a dot (marker) or a diamond (person). */
+    /** Another Meshtastic radio: a small triangle (a mast) in Meshtastic's green, not a dot (marker) or a diamond (person). */
     private fun nodeSymbol(): Bitmap {
         val size = dp(22)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -423,7 +425,7 @@ class MainActivity : AppCompatActivity() {
         }
         triangle(0f, 0x8c111111.toInt())
         triangle(dp(2).toFloat(), Color.WHITE)
-        triangle(dp(5).toFloat(), Color.parseColor("#5c4d7d"))
+        triangle(dp(5).toFloat(), Color.parseColor(MESHTASTIC_GREEN))
         return bitmap
     }
 
@@ -432,10 +434,10 @@ class MainActivity : AppCompatActivity() {
         MeshRadio.nearby().filter { it.lat != null && it.lon != null }.flatMap { n ->
             val lat = n.lat!!
             val lon = n.lon!!
-            val hops = when (n.hops) { null -> ""; 0 -> " · direct"; 1 -> " · 1 hop"; else -> " · ${n.hops} hops" }
             val node = Feature.fromGeometry(Point.fromLngLat(lon, lat)).apply {
                 addStringProperty("kind", "node")
-                addStringProperty("name", n.name + hops)
+                addStringProperty("name", n.name)
+                addNumberProperty("num", n.num)
             }
             val r = n.radius
             if (r < 100) listOf(node) else listOf(node, Feature.fromGeometry(Polygon.fromLngLats(listOf((0..36).map { i ->
@@ -945,6 +947,7 @@ class MainActivity : AppCompatActivity() {
         val around = RectF(p.x - reach, p.y - reach, p.x + reach, p.y + reach)
         m.queryRenderedFeatures(around, MARKER_DOTS).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
         m.queryRenderedFeatures(around, PEER_SYMBOLS).firstOrNull()?.getStringProperty("id")?.let { openPeer(it, fromList = false); return true }
+        m.queryRenderedFeatures(around, NODE_SYMBOLS).firstOrNull()?.getNumberProperty("num")?.let { openNode(it.toInt(), fromList = false); return true }
         return false
     }
 
@@ -1026,6 +1029,16 @@ class MainActivity : AppCompatActivity() {
         selectPeer(uid)
         panels.showPeer(fromList)
         if (follow == Follow.FREE) b.root.post { map?.animateCamera(CameraUpdateFactory.newLatLng(LatLng(peer.lat, peer.lon)), 400) }
+    }
+
+    /** Another Meshtastic radio, tapped on the map or chosen in Nodes Nearby. */
+    internal fun openNode(num: Int, fromList: Boolean) {
+        val node = MeshRadio.state.nodes[num] ?: return
+        selectedNode = num
+        panels.showNode(fromList)
+        val lat = node.lat ?: return
+        val lon = node.lon ?: return
+        if (follow == Follow.FREE) b.root.post { map?.animateCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lon)), 400) }
     }
 
     internal fun selectPeer(uid: String?) {
@@ -1380,6 +1393,8 @@ class MainActivity : AppCompatActivity() {
         const val MARKER_SELECTED = "fm-markers-selected"
         const val PEERS = "fm-peers"
         const val NODES = "fm-nodes"
+        /** The green of Meshtastic's logo. */
+        const val MESHTASTIC_GREEN = "#67ea94"
         const val NODE = "fm-node"
         const val NODE_AREAS = "fm-nodes-area"
         const val NODE_SYMBOLS = "fm-nodes-symbol"

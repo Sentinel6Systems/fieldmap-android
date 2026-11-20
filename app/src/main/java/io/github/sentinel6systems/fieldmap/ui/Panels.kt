@@ -20,6 +20,8 @@ import io.github.sentinel6systems.fieldmap.geo.CoordFormat
 import io.github.sentinel6systems.fieldmap.geo.Coords
 import io.github.sentinel6systems.fieldmap.mesh.MeshNode
 import io.github.sentinel6systems.fieldmap.mesh.MeshRadio
+import io.github.sentinel6systems.fieldmap.mesh.MeshShare
+import io.github.sentinel6systems.fieldmap.mesh.RadioState
 import io.github.sentinel6systems.fieldmap.mesh.RadioSetup
 import io.github.sentinel6systems.fieldmap.offline.Areas
 import io.github.sentinel6systems.fieldmap.remote.RemoteAccess
@@ -55,6 +57,7 @@ enum class Screen(val title: String, val parent: Screen?) {
     MOVE("Move Marker", MARKER),
     SHARING("Location Sharing", MENU),
     MESH("Mesh Radio", MENU),
+    NODE("Mesh Node", null),
     PEER("Shared Location", null),
     SERVER("Server", MENU),
     SETTINGS("Settings", MENU),
@@ -90,6 +93,7 @@ class Panels(private val a: MainActivity) {
     private var sharePeers: LinearLayout? = null
     private var sharePeerRows = ""
     private var peerFromList = false
+    private var nodeFromList = false
     private var peerShown: Peer? = null
     private var peerWhen: TextView? = null
     private var peerGrid: TextView? = null
@@ -98,12 +102,18 @@ class Panels(private val a: MainActivity) {
     fun back() = show(when {
         screen == Screen.MARKER && markerFromList -> Screen.MARKERS
         screen == Screen.PEER && peerFromList -> Screen.SHARING
+        screen == Screen.NODE && nodeFromList -> Screen.MESH
         else -> screen.parent ?: Screen.NONE
     })
 
     fun showMarker(fromList: Boolean) {
         markerFromList = fromList
         show(Screen.MARKER)
+    }
+
+    fun showNode(fromList: Boolean) {
+        nodeFromList = fromList
+        show(Screen.NODE)
     }
 
     fun showPeer(fromList: Boolean) {
@@ -128,7 +138,8 @@ class Panels(private val a: MainActivity) {
         for (v in listOf(a.b.position, a.b.menu, a.b.foot)) v.visibility = if (open) View.GONE else View.VISIBLE
         a.b.frame.visibility = if (next == Screen.SAVE) View.VISIBLE else View.GONE
         a.b.panelTitle.text = next.title
-        val hasBack = next.parent != null || (next == Screen.MARKER && markerFromList) || (next == Screen.PEER && peerFromList)
+        val hasBack = next.parent != null || (next == Screen.MARKER && markerFromList) || (next == Screen.PEER && peerFromList) ||
+            (next == Screen.NODE && nodeFromList)
         a.b.panelBack.visibility = if (hasBack) View.VISIBLE else View.GONE
         a.b.panelTitle.setPadding(if (hasBack) 0 else a.dp(16), 0, 0, 0)
         a.b.panelScroll.scrollTo(0, 0)
@@ -143,6 +154,7 @@ class Panels(private val a: MainActivity) {
             Screen.SAVE -> estimate()
             Screen.SHARING -> sharingFill()
             Screen.MESH -> if (meshLook() != meshShown) build()
+            Screen.NODE -> if (nodeLook() != nodeShown) build()
             // Only the words: the name may be being typed.
             Screen.MARKER -> a.selected?.let { a.markers.get(it) }?.let { (markerShare?.tag as? TextView)?.text = shareDetail(it) }
             Screen.SERVER -> if (!serverBusy) { serverText?.text = serverState(); if (a.remoteNow || !a.reachable) remoteSection(null) }
@@ -165,6 +177,7 @@ class Panels(private val a: MainActivity) {
             Screen.MOVE -> add(a.body("Tap the marker's new location on the map. You can move and zoom the map first.", top = 12))
             Screen.SHARING -> sharing()
             Screen.MESH -> mesh()
+            Screen.NODE -> node()
             Screen.PEER -> peer()
             Screen.SERVER -> server()
             Screen.SETTINGS -> settings()
@@ -580,7 +593,7 @@ class Panels(private val a: MainActivity) {
         val nodes = radio.nearby()
         add(a.label("Nodes Nearby"))
         if (nodes.isEmpty()) add(a.body(if (radio.status == MeshRadio.Status.READY) "No other radios heard in the last 2 hours." else "Connect to the radio to see the radios nearby.", muted = true))
-        for (n in nodes) add(a.row(n.name, nodeDetail(n), icon = null))
+        for (n in nodes) add(a.row(n.name, nodeDetail(n)) { a.openNode(n.num, fromList = true) })
         if (a.prefs.radioPin != 0) {
             add(a.row("Bluetooth PIN", "%06d".format(a.prefs.radioPin), icon = null))
             add(a.body("Fieldmap replaced the radio's factory PIN. Use this PIN to pair the radio again.", muted = true))
@@ -591,11 +604,47 @@ class Panels(private val a: MainActivity) {
         add(a.buttons(*buttons.toTypedArray()))
     }
 
+    // What the Mesh Node panel was built from.
+    private var nodeShown = ""
+
+    private fun nodeLook(): String = a.selectedNode?.let { num -> MeshRadio.state.nodes[num]?.let { "$it|" + nodeDetail(it) + (num in MeshShare.fieldmapNodes) } }.orEmpty()
+
+    /** Another radio, tapped on the map or chosen in Nodes Nearby: who it is, how it is heard, where it says it is. */
+    private fun node() {
+        nodeShown = nodeLook()
+        val n = a.selectedNode?.let { MeshRadio.state.nodes[it] } ?: return add(a.body("This radio is no longer heard.", muted = true, top = 12))
+        add(a.body(n.name, top = 12).apply { setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22f); typeface = android.graphics.Typeface.DEFAULT_BOLD })
+        add(a.body(nodeDetail(n), muted = true, top = 4))
+        add(a.label("Details"))
+        add(a.row("Node ID", RadioState.nodeName(n.num) + if (n.shortName.isNotEmpty()) " · ${n.shortName}" else "", icon = null))
+        if (n.model.isNotEmpty()) add(a.row("Model", n.model, icon = null))
+        add(a.row("Channel", if (n.num in MeshShare.fieldmapNodes) "Fieldmap (server channel)" else "Public", icon = null))
+        add(a.row("Connection", when (n.hops) {
+            null -> "Not known"
+            0 -> "Direct · SNR ${"%.1f".format(n.snr)} dB"
+            1 -> "1 hop"
+            else -> "${n.hops} hops"
+        }, icon = null))
+        add(a.row("Last Heard", Ageing.text(((System.currentTimeMillis() / 1000) - n.heard).toInt().coerceAtLeast(0)), icon = null))
+        n.battery?.let { add(a.row("Battery", if (it > 100) "External Power" else "$it %", icon = null)) }
+        add(a.label("Location"))
+        if (n.lat == null || n.lon == null) {
+            add(a.body("This radio does not report its location.", muted = true))
+            return
+        }
+        add(a.mono(a.coords(n.lat, n.lon), 18f, muted = false))
+        a.fromHere(n.lat, n.lon)?.let { add(a.mono(it)) }
+        if (n.radius >= 100) add(a.body("Approximate: the radio reports its location only to within about ${distanceText(n.radius)}.", muted = true, top = 6))
+        add(a.body("This is the location the radio reports about itself.", muted = true, top = 6))
+    }
+
+    private fun distanceText(m: Double): String = if (m >= 1000) "%.1f km".format(m / 1000) else "${m.toInt()} m"
+
     /** Another radio in a line: how near, how strong, how long ago, on which channel. */
     private fun nodeDetail(n: MeshNode): String = listOfNotNull(
         when (n.hops) { null -> null; 0 -> "Direct · SNR ${"%.0f".format(n.snr)} dB"; 1 -> "1 hop"; else -> "${n.hops} hops" },
         Ageing.text(((System.currentTimeMillis() / 1000) - n.heard).toInt().coerceAtLeast(0)),
-        if (n.channel == RadioSetup.ourIndex(a.prefs.meshReadOnly)) "Fieldmap" else "Public",
+        if (n.num in MeshShare.fieldmapNodes) "Fieldmap" else "Public",
     ).joinToString(" · ")
 
     private fun meshExplain(): String = when (MeshRadio.status) {

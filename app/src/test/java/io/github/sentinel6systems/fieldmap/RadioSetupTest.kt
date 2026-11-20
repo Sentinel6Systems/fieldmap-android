@@ -126,6 +126,12 @@ class RadioSetupTest {
         assertEquals(2, far.nodes[0x88]?.hops)
         assertEquals(1010L, far.nodes[0x88]?.heard)
         assertEquals("its own packets are not another radio", far, far.heard(org.meshtastic.proto.MeshPacket(from = 0x1234), 2000))
+        val described = far.take(FromRadio(node_info = NodeInfo(num = 0x99, user = User(long_name = "Summit", short_name = "SMT",
+            hw_model = HardwareModel.RAK4631), device_metrics = DeviceMetrics(battery_level = 101))))
+        assertEquals("SMT", described.nodes[0x99]?.shortName)
+        assertEquals("RAK4631", described.nodes[0x99]?.model)
+        assertEquals(101, described.nodes[0x99]?.battery)
+        assertEquals("a later packet keeps what it said", "RAK4631", described.heard(org.meshtastic.proto.MeshPacket(from = 0x99), 3000).nodes[0x99]?.model)
     }
 
     @Test fun aRadioWithoutARegionWaitsForThePersonsChoice() {

@@ -226,7 +226,7 @@ object MeshRadio {
                     // Fieldmap's own messages: only on the server's channel, which the radio could decrypt.
                     val d = p.decoded
                     if (status == Status.READY && d != null && d.portnum == PortNum.PRIVATE_APP && p.channel == RadioSetup.ourIndex(prefs.meshReadOnly)) {
-                        MeshShare.received(d.payload.toByteArray())
+                        MeshShare.received(p.from, d.payload.toByteArray())
                     }
                 }
                 onChange()

@@ -34,6 +34,8 @@ object MeshShare {
     var onMarker: ((MeshMarkerChange) -> Unit)? = null
     /** Marker changes heard while nobody took them. */
     val inbox = ArrayList<MeshMarkerChange>()
+    /** The radios (node numbers) that Fieldmap messages came from: the other Fieldmap devices. */
+    val fieldmapNodes = HashSet<Int>()
 
     private class Heard(val peer: Peer, val at: Long)
 
@@ -128,9 +130,10 @@ object MeshShare {
     }
 
     /** Something another Fieldmap device sent over the mesh. */
-    fun received(bytes: ByteArray) {
+    fun received(from: Int, bytes: ByteArray) {
         if (!::prefs.isInitialized) return
         val message = MeshCodec.decode(bytes) ?: return
+        fieldmapNodes += from
         message.position?.let { p ->
             val peer = MeshCodec.peer(p, System.currentTimeMillis()) ?: return@let
             if (peer.uid == prefs.uid) return@let
