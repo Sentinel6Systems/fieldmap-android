@@ -8,6 +8,9 @@ import io.github.sentinel6systems.fieldmap.mesh.proto.MeshDelivered
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshMarker
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshMessage
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshPosition
+import io.github.sentinel6systems.fieldmap.mesh.proto.MeshRoute
+import io.github.sentinel6systems.fieldmap.data.PlannedRoute
+import io.github.sentinel6systems.fieldmap.geo.Routes
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshText
 import io.github.sentinel6systems.fieldmap.share.Fix
 import io.github.sentinel6systems.fieldmap.share.Peer
@@ -48,8 +51,12 @@ object MeshCodec {
         speed = if (moving) fix.speed?.let { (it * 100).roundToInt().coerceAtLeast(0) } else 0, time = (fix.time / 1000).toInt(),
     )))
 
-    /** A shared marker or arrow as it is now. An arrow goes as `arrow`, which apps from before arrows leave alone. */
-    fun marker(m: Marker): ByteArray {
+    /**
+     * A shared marker, arrow or route as it is now. An arrow goes as `arrow`, a route as `route`,
+     * which apps from before them leave alone. Null: a route that does not fit one packet.
+     */
+    fun marker(m: Marker): ByteArray? {
+        if (m.route != null) return route(m, m.route)
         val body = MeshMarker(
             id = m.id, lat = degrees(m.lat), lon = degrees(m.lon), label = m.label, color = rgb(m.color),
             updated = (ShareJson.millis(m.updated) / 1000).toInt(), by_ = if (m.by.isEmpty()) ByteString.EMPTY else uidBytes(m.by),
@@ -57,6 +64,28 @@ object MeshCodec {
         )
         return MeshMessage.ADAPTER.encode(if (m.isArrow) MeshMessage(arrow = body) else MeshMessage(marker = body))
     }
+
+    /** A route: without its name when it would not fit, null when even that does not fit (points far apart). */
+    private fun route(m: Marker, r: PlannedRoute): ByteArray? {
+        val steps = ArrayList<Int>()
+        var (lat, lon) = fine(r.points[0].first) to fine(r.points[0].second)
+        for ((pLat, pLon) in r.points.drop(1)) {
+            val (qLat, qLon) = fine(pLat) to fine(pLon)
+            steps += qLat - lat
+            steps += qLon - lon
+            lat = qLat
+            lon = qLon
+        }
+        fun encode(label: String) = MeshMessage.ADAPTER.encode(MeshMessage(route = MeshRoute(
+            id = m.id, label = label, color = rgb(m.color), updated = (ShareJson.millis(m.updated) / 1000).toInt(),
+            by_ = if (m.by.isEmpty()) ByteString.EMPTY else uidBytes(m.by),
+            lat = degrees(r.points[0].first), lon = degrees(r.points[0].second), steps = steps, mph = r.mph,
+        )))
+        return encode(m.label).takeIf { it.size <= MAX_PAYLOAD } ?: encode("").takeIf { it.size <= MAX_PAYLOAD }
+    }
+
+    /** Degrees * 1e5, as a route's steps count them. */
+    private fun fine(v: Double) = Math.round(v * 1e5).toInt()
 
     /** A shared marker deleted (or taken back) at `atMs`. */
     fun deleted(id: String, atMs: Long, by: String): ByteArray = MeshMessage.ADAPTER.encode(MeshMessage(marker = MeshMarker(
@@ -91,6 +120,27 @@ object MeshCodec {
         return MeshMarkerChange(m.id, Marker(m.id, lat, lon, m.label.filterNot { it.isISOControl() }.trim().take(Drawings.MAX_LABEL),
             "#%06x".format(m.color and 0xffffff), shared = true, updated = at, by = by,
             endLat = endLat.takeIf { arrow }, endLon = endLon.takeIf { arrow }), at)
+    }
+
+    /** A shared route heard over the mesh; its points as the sender had them (to about 1 m). */
+    fun change(r: MeshRoute): MeshMarkerChange? {
+        if (!ShareJson.ID.matches(r.id) || r.steps.size % 2 != 0) return null
+        val points = ArrayList<Pair<Double, Double>>()
+        points += r.lat / 1e7 to r.lon / 1e7
+        var lat = Math.round(r.lat / 100.0)
+        var lon = Math.round(r.lon / 100.0)
+        for (i in r.steps.indices step 2) {
+            lat += r.steps[i]
+            lon += r.steps[i + 1]
+            points += lat / 1e5 to lon / 1e5
+        }
+        if (points.size !in 2..Drawings.MAX_ROUTE_POINTS || points.any { abs(it.first) > 90 || abs(it.second) > 180 }) return null
+        val at = ShareJson.time((r.updated.toLong() and 0xffffffffL) * 1000)
+        val mph = r.mph.takeIf { it in Routes.SPEEDS } ?: Routes.DEFAULT_MPH
+        val m = Marker(r.id, 0.0, 0.0, r.label.filterNot { it.isISOControl() }.trim().take(Drawings.MAX_LABEL),
+            "#%06x".format(r.color and 0xffffff), shared = true, updated = at, by = uidText(r.by_).orEmpty(),
+            route = PlannedRoute(listOf(0.0 to 0.0), mph)).withPoints(points)
+        return MeshMarkerChange(r.id, m, at)
     }
 
     /** What fits one Meshtastic packet. */

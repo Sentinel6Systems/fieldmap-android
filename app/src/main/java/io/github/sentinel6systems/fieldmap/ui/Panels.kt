@@ -505,8 +505,7 @@ class Panels(private val a: MainActivity) {
         }
 
         // One choice, off until the person makes it. A server known to have no sharing does not offer it.
-        // Routes are not shared yet.
-        if (!m.isRoute && (m.shared || a.sharing.box != Sharing.Box.NONE)) {
+        if (m.shared || a.sharing.box != Sharing.Box.NONE) {
             markerShare = a.check("Share with All Devices", shareDetail(m), m.shared) { on -> hideKeyboard(); a.shareMarker(m.id, on); build() }
                 .apply { layoutParams = lp(top = a.dp(10)) }.also(::add)
         }
@@ -558,16 +557,19 @@ class Panels(private val a: MainActivity) {
         add(a.button("Done", Kind.PRIMARY) { a.routes.finish() }.apply { layoutParams = lp(top = a.dp(10)); enable(points.size >= 2) })
     }
 
+    /** "marker", "arrow" or "route", for the words about one. */
+    private fun noun(m: Marker?) = if (m?.isRoute == true) "route" else if (m?.isArrow == true) "arrow" else "marker"
+
     private fun shareDetail(m: Marker): String = when {
-        !m.shared -> "Off. This marker is only on this device."
+        !m.shared -> "Off. This ${noun(m)} is only on this device."
         a.sharing.waiting(m.id) -> "Waiting to sync with the server."
-        else -> "All devices on this server see this marker and can edit or delete it. Uncheck to keep it on this device only."
+        else -> "All devices on this server see this ${noun(m)} and can edit or delete it. Uncheck to keep it on this device only."
     }
 
     private fun confirmDeleteShared(id: String) {
         AlertDialog.Builder(a)
-            .setTitle("Delete Shared Marker?")
-            .setMessage("This deletes the marker from all devices on this server.")
+            .setTitle("Delete Shared ${noun(a.markers.get(id)).replaceFirstChar { it.uppercase() }}?")
+            .setMessage("This deletes the ${noun(a.markers.get(id))} from all devices on this server.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Delete") { _, _ -> a.deleteMarker(id); if (screen == Screen.MARKER) back() }
             .show()

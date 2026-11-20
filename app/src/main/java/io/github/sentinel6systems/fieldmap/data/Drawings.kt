@@ -20,6 +20,11 @@ data class Marker(
 ) {
     val isArrow get() = endLat != null && endLon != null
     val isRoute get() = route != null
+    /**
+     * What it can be: a route (2) more than an arrow (1) more than a point (0). An app from before
+     * routes sees a route of two points as an arrow; such a copy never takes the route's place.
+     */
+    val rank get() = if (isRoute) 2 else if (isArrow) 1 else 0
 
     /** This route with other points (at least one); its `lat`/`lon` go with the first. */
     fun withPoints(points: List<Pair<Double, Double>>) =

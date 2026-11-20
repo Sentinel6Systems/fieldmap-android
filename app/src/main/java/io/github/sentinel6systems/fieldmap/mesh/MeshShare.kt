@@ -107,8 +107,8 @@ object MeshShare {
         sentAt = 0
     }
 
-    /** A shared marker was changed here. */
-    fun markerChanged(m: Marker) = queue(m.id, MeshCodec.marker(m))
+    /** A shared marker was changed here. A route that does not fit one packet stays off the mesh. */
+    fun markerChanged(m: Marker) { MeshCodec.marker(m)?.let { queue(m.id, it) } }
 
     /** A shared marker was deleted here, or taken back. */
     fun markerDeleted(id: String) = queue(id, MeshCodec.deleted(id, System.currentTimeMillis(), prefs.uid))
@@ -159,8 +159,7 @@ object MeshShare {
             if ((last == null || now() - last > NEW_AFTER_MS) && Messaging.shown) announceLater()
             onPeers()
         }
-        (message.marker ?: message.arrow)?.let { m ->
-            val change = MeshCodec.change(m) ?: return@let
+        ((message.marker ?: message.arrow)?.let(MeshCodec::change) ?: message.route?.let(MeshCodec::change))?.let { change ->
             if (change.marker?.by == prefs.uid) return@let
             markersHeard[change.id] = now()
             onMarker?.invoke(change) ?: inbox.add(change)
@@ -210,7 +209,7 @@ object MeshShare {
         val t = now()
         for (m in list.filter { it.shared }.take(MAX_ANNOUNCE)) {
             if ((markersHeard[m.id]?.let { t - it < RECENT_MS }) == true || m.id in outbox) continue
-            outbox[m.id] = MeshCodec.marker(m)
+            outbox[m.id] = MeshCodec.marker(m) ?: continue
         }
         flush()
     }, Random.nextLong(5_000, 60_000))

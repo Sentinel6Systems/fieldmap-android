@@ -18,6 +18,8 @@ message MeshMessage {
     // An arrow, as a MeshMarker with its head. Apart from `marker` so that an app from before
     // arrows does not take it for a plain marker (and pass that on).
     MeshMarker arrow = 5;
+    // A route, apart for the same reason. Deleting one goes as a deleted `marker`.
+    MeshRoute route = 6;
   }
 }
 
@@ -49,6 +51,22 @@ message MeshMarker {
   // An arrow (the print tool's): lat/lon is its start, these its head.
   optional sfixed32 end_lat = 9;
   optional sfixed32 end_lon = 10;
+}
+
+// A shared route as it is now: the points tapped for it (each device draws the line through
+// them), and the speed its time is worked out at. The last change wins, by `updated`. Up to 30
+// points: the first exactly, the others as steps from the one before, in 1e-5 degrees (about
+// 1 m), two bytes each for steps up to about 9 km.
+message MeshRoute {
+  string id = 1;
+  string label = 2;          // left out when the route would not fit
+  uint32 color = 3;          // 0xRRGGBB
+  uint32 updated = 4;        // seconds since 1970
+  bytes by = 5;              // the uid of the device that changed it last (as in MeshPosition)
+  sfixed32 lat = 6;          // the first point, degrees * 1e7
+  sfixed32 lon = 7;
+  repeated sint32 steps = 8; // then each next point: lat step, lon step (degrees * 1e5)
+  uint32 mph = 9;            // its speed (one of the app's choices)
 }
 
 // A short text message, to one device or to everybody. Sent straight to the radio of the device

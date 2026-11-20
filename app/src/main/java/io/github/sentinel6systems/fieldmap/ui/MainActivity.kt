@@ -1239,10 +1239,10 @@ class MainActivity : AppCompatActivity() {
      */
     internal fun shareMarker(id: String, on: Boolean) {
         val marker = markers.get(id) ?: return
-        if (on && marker.isRoute) return            // routes are not shared yet
         val now = if (on) {
-            // The box takes only plain ids; a marker from a file may have another kind.
-            sharing.edited(if (ShareJson.ID.matches(id)) marker else marker.copy(id = markers.newId()))
+            // The box takes only plain ids; a marker from a file may have another kind. A route gets one of
+            // the app's short ids, so that it fits one mesh radio packet.
+            sharing.edited(if (ShareJson.ID.matches(id) && (!marker.isRoute || id.length <= 16)) marker else marker.copy(id = markers.newId()))
         } else {
             sharing.removed(id)
             marker.copy(shared = false, updated = "", by = "")

@@ -4,6 +4,12 @@ import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.MarkerStore
 import io.github.sentinel6systems.fieldmap.geo.Routes
+import io.github.sentinel6systems.fieldmap.mesh.MeshCodec
+import io.github.sentinel6systems.fieldmap.share.Pending
+import io.github.sentinel6systems.fieldmap.share.ShareJson
+import io.github.sentinel6systems.fieldmap.share.ShareMerge
+import io.github.sentinel6systems.fieldmap.share.ShareState
+import org.junit.Assert.assertNull
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -134,5 +140,72 @@ class RoutesTest {
         assertEquals(listOf(m), MarkerStore(file).markers)
         // The same route from a file is not added twice.
         assertEquals(0, store.addAll(listOf(m.copy(id = "other"))))
+    }
+
+    /* ---------- shared ---------- */
+
+    private val uid = "00000000-0000-0000-0000-000000000000"
+    private val shared = route.copy(shared = true, updated = "2027-01-15T08:00:00Z", by = uid, route = route.route!!.copy(mph = 15))
+
+    @Test fun aSharedRouteGoesThroughTheServer() {
+        val state = ShareJson.state("""{"rev":2,"full":true,"positions":[],"removed":[],"markers":[${ShareJson.marker(shared)}]}""")!!
+        assertEquals(listOf(shared), state.markers)
+        val json = JSONObject(ShareJson.marker(shared))
+        assertEquals("route", json.getJSONObject("properties").getJSONObject("fieldmap").getString("kind"))
+        // What the server takes: up to 30 points and 8 KB.
+        val longest = shared.copy(id = "a".repeat(64), label = "L".repeat(30), by = "b".repeat(64))
+            .withPoints((0 until Drawings.MAX_ROUTE_POINTS).map { -89.123456789 + it * 0.0123456789 to 179.123456789 - it * 0.0123456789 })
+        assertTrue(ShareJson.marker(longest).toByteArray().size < 8192)
+    }
+
+    @Test fun aSharedRouteGoesOverTheMeshInOnePacket() {
+        val bytes = MeshCodec.marker(shared)!!
+        assertTrue("${bytes.size} bytes", bytes.size <= 70)
+        val message = MeshCodec.decode(bytes)!!
+        // Its own kind of message: an app from before routes finds no marker or arrow in it.
+        assertNull(message.marker)
+        assertNull(message.arrow)
+        val back = MeshCodec.change(message.route!!)!!.marker!!
+        assertEquals(shared.copy(route = null), back.copy(route = null, lat = shared.lat, lon = shared.lon))
+        assertEquals(15, back.route!!.mph)
+        // The first point exactly (1e-7°), the others to about a meter (1e-5°).
+        assertEquals(points[0].first, back.route!!.points[0].first, 1e-7)
+        for ((a, b) in points.zip(back.route!!.points)) {
+            assertEquals(a.first, b.first, 1e-5)
+            assertEquals(a.second, b.second, 1e-5)
+        }
+    }
+
+    @Test fun thirtyPointsAndALongNameFitOnePacket() {
+        // 30 points about 1 km apart, a 30-letter name, the ids the app makes (a shared route always has one of its own).
+        val walk = (0 until Drawings.MAX_ROUTE_POINTS).map { 48.0 + it * 0.009 to -122.0 + (it % 2) * 0.012 }
+        val longest = shared.copy(id = "lq3k9zrtq12", label = "L".repeat(30)).withPoints(walk)
+        val bytes = MeshCodec.marker(longest)!!
+        assertTrue("${bytes.size} bytes", bytes.size <= MeshCodec.MAX_PAYLOAD)
+        assertEquals("L".repeat(30), MeshCodec.change(MeshCodec.decode(bytes)!!.route!!)!!.marker!!.label)
+        // Points far apart and a name of emoji: the name is left out; a route that still does not fit stays off the mesh.
+        val far = (0 until Drawings.MAX_ROUTE_POINTS).map { (it % 2) * 80.0 - 40 to (it % 3) * 100.0 - 100 }
+        val emoji = longest.copy(label = "\uD83D\uDE80".repeat(15))
+        assertEquals("", MeshCodec.change(MeshCodec.decode(MeshCodec.marker(emoji)!!)!!.route!!)!!.marker!!.label)
+        assertNull(MeshCodec.marker(longest.withPoints(far)))
+    }
+
+    @Test fun aRouteHeardBadlyIsDropped() {
+        val r = MeshCodec.decode(MeshCodec.marker(shared)!!)!!.route!!
+        assertNull(MeshCodec.change(r.copy(id = "x")))
+        assertNull("odd steps", MeshCodec.change(r.copy(steps = r.steps.dropLast(1))))
+        assertNull("one point", MeshCodec.change(r.copy(steps = emptyList())))
+        assertNull("off the earth", MeshCodec.change(r.copy(steps = listOf(9_000_000, 0))))
+        assertEquals("a speed not offered is the default", 2, MeshCodec.change(r.copy(mph = 33))!!.marker!!.route!!.mph)
+    }
+
+    @Test fun anOlderAppCannotTurnARouteIntoAnArrowOrAPoint() {
+        // A route of two points reads as an arrow in an app from before routes; its copy back through the server does not replace the route.
+        val mine = shared.withPoints(points.take(2))
+        val arrow = mine.copy(route = null, endLat = points[1].first, endLon = points[1].second, updated = "2027-01-15T08:05:00Z")
+        val merged = ShareMerge.merge(listOf(mine), ShareState(5, true, emptyList(), listOf(arrow), emptyList()), Pending())
+        assertEquals(listOf(mine), merged.markers)
+        assertEquals(setOf(mine.id), merged.pending.put)
+        assertEquals(listOf(2, 1, 0), listOf(mine.rank, arrow.rank, arrow.copy(endLat = null, endLon = null).rank))
     }
 }

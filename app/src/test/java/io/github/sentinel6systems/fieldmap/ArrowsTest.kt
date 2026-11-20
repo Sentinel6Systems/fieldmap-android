@@ -59,7 +59,7 @@ class ArrowsTest {
 
     @Test fun anAppThatDoesNotKnowArrowsCannotTurnOneIntoAPoint() {
         // Over the mesh an arrow is its own kind of message: an older app finds no marker in it.
-        val decoded = MeshCodec.decode(MeshCodec.marker(arrow.copy(shared = true, updated = "2027-01-15T08:00:00Z")))!!
+        val decoded = MeshCodec.decode(MeshCodec.marker(arrow.copy(shared = true, updated = "2027-01-15T08:00:00Z"))!!)!!
         assertEquals(null, decoded.marker)
         assertEquals(arrow.id, decoded.arrow?.id)
         // Its point copy, come back through the box, does not replace the arrow; a shared arrow goes to the box again.
@@ -81,10 +81,10 @@ class ArrowsTest {
         val shared = arrow.copy(shared = true, updated = "2027-01-15T08:00:00Z", by = "test-phone-0001")
         val state = ShareJson.state("""{"rev":2,"full":true,"positions":[],"removed":[],"markers":[${ShareJson.marker(shared)}]}""")!!
         assertEquals(listOf(shared), state.markers)
-        val bytes = MeshCodec.marker(shared)
+        val bytes = MeshCodec.marker(shared)!!
         assertTrue("${bytes.size} bytes", bytes.size <= 100)
         assertEquals(shared, MeshCodec.change(MeshCodec.decode(bytes)!!.arrow!!)!!.marker)
-        assertEquals("a marker stays a marker", null, MeshCodec.change(MeshCodec.decode(MeshCodec.marker(shared.copy(endLat = null, endLon = null)))!!.marker!!)!!.marker!!.endLat)
+        assertEquals("a marker stays a marker", null, MeshCodec.change(MeshCodec.decode(MeshCodec.marker(shared.copy(endLat = null, endLon = null))!!)!!.marker!!)!!.marker!!.endLat)
         JSONObject(ShareJson.marker(shared))       // valid JSON
     }
 }

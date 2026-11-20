@@ -56,7 +56,7 @@ class MeshCodecTest {
 
     @Test fun aMarkerAndItsDeletionGoOutAndComeBack() {
         val m = Marker("lq3k9zabc", 48.5, -122.25, "Water point 2", "#1f5fa8", shared = true, updated = "2027-01-15T08:00:00Z", by = uid)
-        val bytes = MeshCodec.marker(m)
+        val bytes = MeshCodec.marker(m)!!
         assertTrue("${bytes.size} bytes", bytes.size <= 90)
         val back = MeshCodec.change(MeshCodec.decode(bytes)!!.marker!!)!!
         assertEquals(m, back.marker)
@@ -70,8 +70,8 @@ class MeshCodecTest {
 
     @Test fun theLongestMessagesStillFitOnePacket() {
         val m = Marker("a".repeat(64), -89.9999999, 179.9999999, "L".repeat(30), "#ffffff", true, "2027-01-15T08:00:00Z", "b".repeat(64))
-        assertTrue(MeshCodec.marker(m).size <= 233)
+        assertTrue(MeshCodec.marker(m)!!.size <= 233)
         assertTrue(MeshCodec.position("c".repeat(64), "N".repeat(24), fix, true).size <= 233)
-        assertNotNull(MeshCodec.decode(MeshCodec.marker(m))?.marker)
+        assertNotNull(MeshCodec.decode(MeshCodec.marker(m)!!)?.marker)
     }
 }

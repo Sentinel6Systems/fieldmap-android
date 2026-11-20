@@ -145,10 +145,8 @@ object ShareJson {
             val properties = f.optJSONObject("properties")
             val id = (f.opt("id") as? String) ?: (properties?.optJSONObject("fieldmap")?.opt("id") as? String) ?: continue
             if (!ID.matches(id)) continue
-            // Read as any marker file is: a point, its name cut to length, its colour checked. Routes
-            // are not shared yet: a line of more than two points is left out.
-            val read = try { Drawings.fromGeoJson(f.toString(), Palette.DEFAULT) { id }.markers.singleOrNull() } catch (e: IllegalArgumentException) { null }
-                ?.takeIf { !it.isRoute } ?: continue
+            // Read as any marker file is: a point, its name cut to length, its colour checked.
+            val read = try { Drawings.fromGeoJson(f.toString(), Palette.DEFAULT) { id }.markers.singleOrNull() } catch (e: IllegalArgumentException) { null } ?: continue
             markers += read.copy(id = id, shared = true, updated = properties?.optString("updated").orEmpty(), by = properties?.optString("by").orEmpty())
         }
         val removed = o.optJSONArray("removed").let { a -> (0 until (a?.length() ?: 0)).mapNotNull { a?.opt(it) as? String } }
@@ -189,9 +187,9 @@ object ShareMerge {
             when {
                 // Taken back here, kept on the phone: the box is still to be told.
                 there != null && m.id in deleted -> out += m
-                // A plain marker never takes the place of an arrow: it is a copy from an app that does
-                // not know arrows. The arrow stays, and a shared one goes to the box again.
-                there != null && m.isArrow && !there.isArrow -> { out += m; if (m.shared) put += m.id }
+                // A plain marker never takes the place of an arrow, nor an arrow that of a route: it is a
+                // copy from an app that does not know them. Ours stays, and a shared one goes to the box again.
+                there != null && m.rank > there.rank -> { out += m; if (m.shared) put += m.id }
                 // Changed on both sides: this phone's change stays only if it is the later one.
                 there != null -> if (m.shared && m.id in put && ShareJson.millis(m.updated) >= ShareJson.millis(there.updated)) out += m else { out += there; put -= m.id }
                 !m.shared -> out += m

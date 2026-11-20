@@ -161,8 +161,8 @@ class Sharing(private val a: MainActivity) {
         val before = a.markers.get(change.id)
         // Over the mesh a change can come late, or again: one that is not newer than what is here changes nothing.
         if (before != null && before.shared && ShareJson.millis(before.updated) >= ShareJson.millis(change.at)) return
-        // A plain marker for an arrow comes from an app that does not know arrows: the arrow stays.
-        if (before != null && before.isArrow && change.marker != null && !change.marker.isArrow) return
+        // A plain marker for an arrow (an arrow for a route) comes from an app that does not know them: ours stays.
+        if (before != null && change.marker != null && before.rank > change.marker.rank) return
         val merged = ShareMerge.merge(a.markers.markers, state, a.prefs.pending)
         val after = merged.markers.firstOrNull { it.id == change.id }
         var pending = merged.pending
@@ -326,7 +326,9 @@ class Sharing(private val a: MainActivity) {
                     a.prefs.pending = p.copy(put = p.put - id)
                     a.sharedMarkers(a.markers.markers.map { if (it.id == id) it.copy(shared = false, updated = "", by = "") else it })
                     val why = try { JSONObject(r.body).optString("error") } catch (e: JSONException) { "" }
-                    a.toast(if (m.isArrow && r.code == 400 && why.contains("Point"))
+                    a.toast(if (m.isRoute && r.code == 400 && (why.contains("Point") || why.contains("arrow", ignoreCase = true)))
+                        "This server cannot share routes yet: update the server (git pull, then its installer). ${m.label.ifEmpty { "The route" }} stays on this device only."
+                    else if (m.isArrow && r.code == 400 && why.contains("Point"))
                         "This server cannot share arrows yet: update the server (git pull, then its installer). ${m.label.ifEmpty { "The arrow" }} stays on this device only."
                     else "The server rejected the marker ${m.label.ifEmpty { "Unnamed" }}. It stays on this device only." + if (why.isEmpty()) "" else " Server: $why")
                 }
