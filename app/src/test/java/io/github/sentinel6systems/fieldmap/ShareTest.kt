@@ -5,6 +5,7 @@ import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.MarkerStore
 import io.github.sentinel6systems.fieldmap.share.Ageing
 import io.github.sentinel6systems.fieldmap.share.Fix
+import io.github.sentinel6systems.fieldmap.share.MeshChannel
 import io.github.sentinel6systems.fieldmap.share.Mover
 import io.github.sentinel6systems.fieldmap.share.Pace
 import io.github.sentinel6systems.fieldmap.share.Peer
@@ -44,6 +45,8 @@ class ShareTest {
         // A pace of zero would have the phone ask without pause; a position must outlive two posts.
         assertEquals(ShareInfo(true, 2, 4), ShareJson.info("""{"version":1,"enabled":true,"interval":0,"stale":1}"""))
         assertNull(ShareJson.info("<html>not found</html>"))
+        assertEquals("a1b2c3d4e5f6", ShareJson.info("""{"version":1,"enabled":true,"interval":5,"stale":120,"mesh":"a1b2c3d4e5f6"}""")?.mesh)
+        assertEquals("", ShareJson.info("""{"version":1,"enabled":true,"mesh":"not a rev!"}""")?.mesh)
         assertNull(ShareJson.info("""{"service":"something else"}"""))
     }
 
@@ -414,5 +417,60 @@ class ShareTest {
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    /* ---------- the mesh radio channel ---------- */
+
+    private val psk = java.util.Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
+    private fun channel(vararg changes: Pair<String, Any>) = JSONObject("""{"version":1,"name":"FM-0a1b2c","psk":"$psk",
+        "preset":"LONG_FAST","hopLimit":3,"moving":60,"still":600,"move":15,"rev":"a1b2c3d4e5f6"}""").apply { changes.forEach { (k, v) -> put(k, v) } }.toString()
+
+    @Test fun theServersMeshChannelIsReadAsItIsGivenOut() {
+        assertEquals(MeshChannel("FM-0a1b2c", psk, "LONG_FAST", 3, 60, 600, 15, "a1b2c3d4e5f6"), ShareJson.mesh(channel()))
+    }
+
+    @Test fun aMeshChannelThatARadioCannotTakeIsRefused() {
+        assertNull(ShareJson.mesh("<html>not found</html>"))
+        assertNull(ShareJson.mesh(channel("version" to 2)))
+        assertNull(ShareJson.mesh(channel("name" to "a name too long")))
+        assertNull(ShareJson.mesh(channel("name" to "")))
+        assertNull(ShareJson.mesh(channel("psk" to java.util.Base64.getEncoder().encodeToString(ByteArray(16)))))
+        assertNull(ShareJson.mesh(channel("psk" to "not base64!")))
+        assertNull(ShareJson.mesh(channel("rev" to "")))
+    }
+
+    @Test fun aMeshChannelsPaceAndHopsStayWithinWhatAMeshCanCarry() {
+        val c = ShareJson.mesh(channel("moving" to 5, "still" to 1, "hopLimit" to 12, "preset" to "SOMETHING_ELSE", "move" to 0))!!
+        assertEquals(5, c.move)
+        assertEquals(60, c.moving)
+        assertEquals(60, c.still)
+        assertEquals(7, c.hopLimit)
+        assertEquals("LONG_FAST", c.preset)
+    }
+
+    @Test fun overTheMeshOnlyMoreThanFifteenMetersInAMinuteIsMoving() {
+        val mover = io.github.sentinel6systems.fieldmap.share.MeshMover(ShareJson.mesh(channel())!!)
+        val north = 1.0 / 111_195.0                     // degrees of latitude in one meter
+        assertTrue("the first position goes out soon", mover.moving)
+        assertEquals(60, mover.pace)
+        mover.take(10.0, 20.0, 0)
+        // Wandering by up to 12 m for a minute: staying where it is.
+        assertFalse(mover.take(10.0 + 12 * north, 20.0, 30_000))
+        assertTrue(mover.take(10.0 + 4 * north, 20.0, 60_000))
+        assertFalse(mover.moving)
+        assertEquals(600, mover.pace)
+        // 20 m within the next minute: moving at once.
+        assertTrue(mover.take(10.0 + 24 * north, 20.0, 80_000))
+        assertEquals(60, mover.pace)
+        // 10 m in the minute after that: no longer.
+        assertFalse(mover.take(10.0 + 34 * north, 20.0, 110_000))
+        assertTrue(mover.take(10.0 + 34 * north, 20.0, 140_000))
+        assertFalse(mover.moving)
+    }
+
+    @Test fun aMeshChannelIsWrittenDownAndReadBackTheSame() {
+        val c = ShareJson.mesh(channel())!!
+        assertEquals(c, ShareJson.mesh(ShareJson.meshToJson(c)))
+        assertFalse("the key never shows in a log", c.toString().contains(psk))
     }
 }

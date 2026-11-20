@@ -14,7 +14,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import io.github.sentinel6systems.fieldmap.server.MapStyle
 import io.github.sentinel6systems.fieldmap.server.TileServer
+import io.github.sentinel6systems.fieldmap.share.MeshChannel
 import io.github.sentinel6systems.fieldmap.share.Pending
+import io.github.sentinel6systems.fieldmap.share.ShareJson
 import java.util.UUID
 
 /** What the app remembers between runs, all of it on the phone. */
@@ -95,6 +97,32 @@ class Prefs(context: Context) {
         return NetBirdBlock(p.getString("remote.nb.management", "").orEmpty(), key, p.getString("remote.nb.host", "").orEmpty(),
             p.getInt("remote.nb.port", 0), p.getString("remote.nb.rev", "").orEmpty())
     }
+
+    /**
+     * The mesh radio channel of the server set now (null without one): taken from the server
+     * while it answers, kept for when it cannot be reached. Written only in a form that this app
+     * on this device can read; a channel of another server does not count.
+     */
+    var meshChannel: MeshChannel?
+        get() {
+            if (p.getString("mesh.server", null) != server) return null
+            val sealed = p.getString("mesh.channel", null) ?: return null
+            val text = meshOpened?.takeIf { it.first == sealed }?.second ?: Secret.open(sealed, Secret.MESH)?.also { meshOpened = sealed to it } ?: return null
+            return ShareJson.mesh(text)
+        }
+        set(v) = p.edit {
+            val sealed = v?.let { Secret.seal(ShareJson.meshToJson(it), Secret.MESH) }
+            if (sealed != null) {
+                putString("mesh.channel", sealed); putString("mesh.server", server)
+            } else {
+                remove("mesh.channel"); remove("mesh.server")
+                Secret.forget(Secret.MESH)
+            }
+            meshOpened = null
+        }
+
+    /** The channel as it is written down, and as it reads: opened once, not at every look. */
+    private var meshOpened: Pair<String, String>? = null
 
     /** Tells this phone from the others on a box. Made once, at random; not a secret, and it says nothing about the phone. */
     val uid: String

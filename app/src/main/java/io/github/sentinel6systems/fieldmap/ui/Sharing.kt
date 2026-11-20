@@ -195,7 +195,11 @@ class Sharing(private val a: MainActivity) {
             if (home != a.prefs.server) return
             val said = if (r.code == 200 || r.code == 503) ShareJson.info(r.body) else null
             when {
-                r.code == 200 && said != null && said.enabled -> { info = said; base = place; saidOff = false; box = Box.ON; return }
+                r.code == 200 && said != null && said.enabled -> {
+                    info = said; base = place; saidOff = false; box = Box.ON
+                    takeMesh(home, place, said.mesh)
+                    return
+                }
                 (r.code == 200 && said != null) || r.code == 503 -> { base = place; switchedOff(); return }
                 r.code == 401 || r.code == 403 -> { a.probe(); box = Box.UNKNOWN; return }
                 r.code != null -> answered = true
@@ -204,6 +208,18 @@ class Sharing(private val a: MainActivity) {
         // A server that answers but knows nothing of sharing has none; no answer at all says nothing.
         box = if (answered) Box.NONE else Box.UNKNOWN
         if (box == Box.NONE) peers = emptyList()
+    }
+
+    /**
+     * Takes the server's mesh radio channel when it is new to this device (another rev). A
+     * channel that cannot be had now is asked for again at the next look; the one kept stays
+     * until then, for use off the grid.
+     */
+    private suspend fun takeMesh(home: String, place: String, rev: String) {
+        if (rev.isEmpty() || a.prefs.meshChannel?.rev == rev) return
+        val r = ShareClient.get(place + "mesh")
+        val channel = if (r.code == 200) ShareJson.mesh(r.body) else null
+        if (channel != null && home == a.prefs.server) a.prefs.meshChannel = channel
     }
 
     private fun switchedOff() {

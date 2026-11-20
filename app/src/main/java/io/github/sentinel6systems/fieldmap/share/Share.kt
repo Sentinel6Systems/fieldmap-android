@@ -14,8 +14,24 @@ import kotlin.math.abs
 // set of markers. This file is what travels and what is done with it; nothing here talks to
 // the network or to Android, so all of it is covered by unit tests.
 
-/** What the box says about sharing: seconds between posts and polls, and seconds until a position is dropped. */
-data class ShareInfo(val enabled: Boolean, val interval: Int, val stale: Int)
+/**
+ * What the box says about sharing: seconds between posts and polls, and seconds until a position
+ * is dropped. `mesh`: the rev of the server's mesh radio channel ("" when it gives none), to tell
+ * when the channel changed.
+ */
+data class ShareInfo(val enabled: Boolean, val interval: Int, val stale: Int, val mesh: String = "")
+
+/**
+ * The server's private channel for Meshtastic radios, as the server gave it out: what the app
+ * writes into the paired radio, and how often a position goes out over the mesh (seconds on the
+ * move and while staying in one place; moving = farther than `move` meters in `moving` seconds).
+ * `psk`: the AES-256 key, Base64; a secret.
+ */
+data class MeshChannel(
+    val name: String, val psk: String, val preset: String, val hopLimit: Int, val moving: Int, val still: Int, val move: Int, val rev: String,
+) {
+    override fun toString() = "MeshChannel($name, rev $rev)"       // never the key, in a log or anywhere else
+}
 
 /** Another phone's position as the box gave it. `age`: seconds since the box got it. */
 data class Peer(
@@ -62,8 +78,32 @@ object ShareJson {
         val o = try { JSONObject(text) } catch (e: JSONException) { return null }
         if (o.optInt("version", 0) < 1 && !o.has("enabled")) return null
         val interval = o.optInt("interval", 5).coerceIn(2, 600)
-        return ShareInfo(o.optBoolean("enabled", true), interval, o.optInt("stale", 120).coerceIn(2 * interval, 86_400))
+        val mesh = (o.opt("mesh") as? String)?.takeIf { REV.matches(it) }.orEmpty()
+        return ShareInfo(o.optBoolean("enabled", true), interval, o.optInt("stale", 120).coerceIn(2 * interval, 86_400), mesh)
     }
+
+    private val REV = Regex("^[A-Za-z0-9-]{1,64}$")
+    /** Meshtastic's channel names: up to 11 characters; ours are letters, digits and dashes. */
+    private val CHANNEL = Regex("^[A-Za-z0-9-]{1,11}$")
+    private val PRESETS = setOf("LONG_FAST", "LONG_SLOW", "LONG_MODERATE", "LONG_TURBO", "MEDIUM_FAST", "MEDIUM_SLOW",
+        "SHORT_FAST", "SHORT_SLOW", "SHORT_TURBO")
+
+    /** The answer of `mesh`; null when the text is not a channel this app can use. */
+    fun mesh(text: String): MeshChannel? {
+        val o = try { JSONObject(text) } catch (e: JSONException) { return null }
+        val name = o.opt("name") as? String ?: return null
+        val psk = o.opt("psk") as? String ?: return null
+        val rev = o.opt("rev") as? String ?: return null
+        val key = try { java.util.Base64.getDecoder().decode(psk) } catch (e: IllegalArgumentException) { return null }
+        if (o.optInt("version", 0) != 1 || !CHANNEL.matches(name) || key.size != 32 || !REV.matches(rev)) return null
+        val preset = (o.opt("preset") as? String)?.takeIf { it in PRESETS } ?: "LONG_FAST"
+        val moving = o.optInt("moving", 60).coerceIn(60, 3600)
+        return MeshChannel(name, psk, preset, o.optInt("hopLimit", 3).coerceIn(1, 7), moving, o.optInt("still", 600).coerceIn(moving, 7200),
+            o.optInt("move", 15).coerceIn(5, 500), rev)
+    }
+
+    fun meshToJson(c: MeshChannel): String = JSONObject().put("version", 1).put("name", c.name).put("psk", c.psk).put("preset", c.preset)
+        .put("hopLimit", c.hopLimit).put("moving", c.moving).put("still", c.still).put("move", c.move).put("rev", c.rev).toString()
 
     fun position(uid: String, name: String, fix: Fix): String {
         val o = JSONObject().put("uid", uid).put("name", name).put("lat", round(fix.lat, 7)).put("lon", round(fix.lon, 7))
@@ -208,6 +248,38 @@ object Pace {
 
     /** Seconds between positions while staying in one place. */
     fun still(info: ShareInfo): Int = maxOf(moving(info), info.stale / 2)
+}
+
+/**
+ * Over the mesh: tells whether this device is moving, by the server's rule. Moving is farther
+ * than `channel.move` meters within `channel.moving` seconds; less counts as staying where it
+ * is, so that a position wandering a few meters does not fill the mesh. Starts as moving, so
+ * that the first position goes out soon.
+ */
+class MeshMover(private val channel: MeshChannel) {
+    var moving = true
+        private set
+    private var anchor: Triple<Double, Double, Long>? = null
+
+    /** Takes a position (`time`: ms). Returns true when `moving` changed with it. */
+    fun take(lat: Double, lon: Double, time: Long): Boolean {
+        val was = moving
+        val from = anchor
+        if (from == null) {
+            anchor = Triple(lat, lon, time)
+            return false
+        }
+        val far = Mover.metres(from.first, from.second, lat, lon) > channel.move
+        val over = time - from.third >= channel.moving * 1000L
+        if (far || over) {
+            moving = far
+            anchor = Triple(lat, lon, time)
+        }
+        return moving != was
+    }
+
+    /** Seconds until the next position goes out over the mesh. */
+    val pace get() = if (moving) channel.moving else channel.still
 }
 
 /** Tells from its positions alone whether a phone is on the move or staying where it is. */
