@@ -13,6 +13,7 @@ message MeshMessage {
   oneof kind {
     MeshPosition position = 1;
     MeshMarker marker = 2;
+    MeshText text = 3;
   }
 }
 
@@ -41,4 +42,16 @@ message MeshMarker {
   uint32 updated = 6;        // seconds since 1970
   bytes by = 7;              // the uid of the device that changed it last (as in MeshPosition)
   bool deleted = 8;
+}
+
+// A short text message, to one device or to everybody. Sent straight to the radio of the device
+// it is for when that radio is known (Meshtastic confirms it arrived), otherwise to everybody, so
+// that a device that also reaches the server can pass it on there.
+message MeshText {
+  string id = 1;
+  bytes from = 2;            // the sender's uid (as in MeshPosition)
+  string name = 3;           // the sender's display name; left out when the message would not fit
+  bytes to = 4;              // the uid it is for; empty: everybody
+  string text = 5;           // at most 140 characters
+  uint32 time = 6;           // when it was written, seconds since 1970
 }

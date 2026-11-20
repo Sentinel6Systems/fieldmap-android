@@ -148,6 +148,15 @@ class Prefs(context: Context) {
         get() = p.getBoolean("radio.nodesOnMap", true)
         set(v) = p.edit { putBoolean("radio.nodesOnMap", v) }
 
+    /** The last seq of the server's messages this device has, and the server (its /mapshare/ base) it is from. */
+    var messageSeq: Long
+        get() = p.getLong("messages.seq", 0)
+        set(v) = p.edit { putLong("messages.seq", v) }
+
+    var messageSeqFor: String?
+        get() = p.getString("messages.for", null)
+        set(v) = p.edit { putString("messages.for", v) }
+
     /** The radios of the other Fieldmap devices (node numbers), as heard over the mesh. */
     var fieldmapRadios: Set<Int>
         get() = p.getStringSet("radio.fieldmap", emptySet()).orEmpty().mapNotNull { it.toIntOrNull() }.toSet()

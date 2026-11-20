@@ -15,6 +15,9 @@ import io.github.sentinel6systems.fieldmap.BuildConfig
 import io.github.sentinel6systems.fieldmap.R
 import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.Marker
+import io.github.sentinel6systems.fieldmap.data.Message
+import io.github.sentinel6systems.fieldmap.data.MessageRoute
+import io.github.sentinel6systems.fieldmap.data.MessageStatus
 import io.github.sentinel6systems.fieldmap.data.Palette
 import io.github.sentinel6systems.fieldmap.geo.CoordFormat
 import io.github.sentinel6systems.fieldmap.geo.Coords
@@ -37,6 +40,7 @@ import io.github.sentinel6systems.fieldmap.server.ServerAddress
 import io.github.sentinel6systems.fieldmap.server.TileServer
 import io.github.sentinel6systems.fieldmap.share.Ageing
 import io.github.sentinel6systems.fieldmap.share.Peer
+import io.github.sentinel6systems.fieldmap.share.Messaging
 import io.github.sentinel6systems.fieldmap.share.ShareJson
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -57,6 +61,8 @@ enum class Screen(val title: String, val parent: Screen?) {
     MOVE("Move Marker", MARKER),
     SHARING("Location Sharing", MENU),
     MESH("Mesh Radio", MENU),
+    MESSAGES("Messages", MENU),
+    CHAT("Conversation", null),
     NODE("Mesh Node", null),
     PEER("Shared Location", null),
     SERVER("Server", MENU),
@@ -94,6 +100,10 @@ class Panels(private val a: MainActivity) {
     private var sharePeerRows = ""
     private var peerFromList = false
     private var nodeFromList = false
+    private var chatWith: String? = null
+    private var chatFromPeer = false
+    private var chatList: LinearLayout? = null
+    private var chatShown = ""
     private var peerShown: Peer? = null
     private var peerWhen: TextView? = null
     private var peerGrid: TextView? = null
@@ -103,12 +113,20 @@ class Panels(private val a: MainActivity) {
         screen == Screen.MARKER && markerFromList -> Screen.MARKERS
         screen == Screen.PEER && peerFromList -> Screen.SHARING
         screen == Screen.NODE && nodeFromList -> Screen.MESH
+        screen == Screen.CHAT -> if (chatFromPeer) Screen.PEER else Screen.MESSAGES
         else -> screen.parent ?: Screen.NONE
     })
 
     fun showMarker(fromList: Boolean) {
         markerFromList = fromList
         show(Screen.MARKER)
+    }
+
+    /** The conversation with `partner` (a uid, or Message.EVERYONE); from a person's panel, Back leads there. */
+    fun showChat(partner: String, fromPeer: Boolean) {
+        chatWith = partner
+        chatFromPeer = fromPeer
+        show(Screen.CHAT)
     }
 
     fun showNode(fromList: Boolean) {
@@ -130,7 +148,12 @@ class Panels(private val a: MainActivity) {
         // Move belongs to the marker's panel: the marker stays chosen between the two.
         if (screen == Screen.MARKER && next != Screen.MARKER && next != Screen.MOVE) a.select(null)
         if (screen == Screen.MOVE && next != Screen.MARKER) a.select(null)
-        if (screen == Screen.PEER && next != Screen.PEER) a.selectPeer(null)
+        // A conversation opened from a person's panel leads back to it: the person stays chosen between the two.
+        if (screen == Screen.PEER && next != Screen.PEER && next != Screen.CHAT) a.selectPeer(null)
+        if (screen == Screen.CHAT && next != Screen.CHAT) {
+            Messaging.open = null
+            if (next != Screen.PEER) a.selectPeer(null)
+        }
         screen = next
         val open = next != Screen.NONE
         a.b.panel.visibility = if (open) View.VISIBLE else View.GONE
@@ -139,7 +162,7 @@ class Panels(private val a: MainActivity) {
         a.b.frame.visibility = if (next == Screen.SAVE) View.VISIBLE else View.GONE
         a.b.panelTitle.text = next.title
         val hasBack = next.parent != null || (next == Screen.MARKER && markerFromList) || (next == Screen.PEER && peerFromList) ||
-            (next == Screen.NODE && nodeFromList)
+            (next == Screen.NODE && nodeFromList) || next == Screen.CHAT
         a.b.panelBack.visibility = if (hasBack) View.VISIBLE else View.GONE
         a.b.panelTitle.setPadding(if (hasBack) 0 else a.dp(16), 0, 0, 0)
         a.b.panelScroll.scrollTo(0, 0)
@@ -155,6 +178,8 @@ class Panels(private val a: MainActivity) {
             Screen.SHARING -> sharingFill()
             Screen.MESH -> if (meshLook() != meshShown) build()
             Screen.NODE -> if (nodeLook() != nodeShown) build()
+            Screen.MESSAGES -> build()
+            Screen.CHAT -> chatFill()
             // Only the words: the name may be being typed.
             Screen.MARKER -> a.selected?.let { a.markers.get(it) }?.let { (markerShare?.tag as? TextView)?.text = shareDetail(it) }
             Screen.SERVER -> if (!serverBusy) { serverText?.text = serverState(); if (a.remoteNow || !a.reachable) remoteSection(null) }
@@ -178,6 +203,8 @@ class Panels(private val a: MainActivity) {
             Screen.SHARING -> sharing()
             Screen.MESH -> mesh()
             Screen.NODE -> node()
+            Screen.MESSAGES -> messages()
+            Screen.CHAT -> chat()
             Screen.PEER -> peer()
             Screen.SERVER -> server()
             Screen.SETTINGS -> settings()
@@ -196,6 +223,7 @@ class Panels(private val a: MainActivity) {
         add(a.row("Offline Areas", if (saved.isEmpty()) "None" else "${saved.size} downloaded · ${bytesText(a.areas.storedBytes())}") { show(Screen.AREAS) })
         add(a.row("Markers", if (a.markers.markers.isEmpty()) "None" else "${a.markers.markers.size}") { show(Screen.MARKERS) })
         add(a.row("Location Sharing", a.sharing.summary()) { show(Screen.SHARING) })
+        add(a.row("Messages", Messaging.store.unread().let { if (it == 0) "No new messages" else "$it new" }) { show(Screen.MESSAGES) })
         add(a.row("Mesh Radio", if (a.prefs.radioAddress == null) "Not Paired" else meshStatus() +
             MeshRadio.nearby().size.let { if (MeshRadio.status == MeshRadio.Status.READY && it > 0) " · $it node${if (it == 1) "" else "s"} nearby" else "" }) { show(Screen.MESH) })
         add(a.row("Server", a.prefs.server?.let { ServerAddress.short(it) + " · " + boxState() } ?: "Not Configured") { show(Screen.SERVER) })
@@ -507,6 +535,7 @@ class Panels(private val a: MainActivity) {
         peerGrid = a.mono("", 18f, muted = false).also(::add)
         peerWhere = a.mono("").also(::add)
         peerFill()
+        add(a.button("Send Message", Kind.PRIMARY) { showChat(uid, fromPeer = true) }.apply { layoutParams = lp(top = a.dp(16)) })
     }
 
     private fun peerFill() {
@@ -607,6 +636,89 @@ class Panels(private val a: MainActivity) {
         if (radio.status == MeshRadio.Status.OFFLINE || radio.status == MeshRadio.Status.FAILED) buttons += a.button("Connect", Kind.PRIMARY) { a.connectRadio() }
         buttons += a.button("Forget Radio", Kind.DANGER) { confirmForgetRadio() }
         add(a.buttons(*buttons.toTypedArray()))
+    }
+
+    /* ---------- messages ---------- */
+
+    /** A person's name: as sharing shows them now, or as their last message had it. */
+    private fun nameOf(partner: String): String = when (partner) {
+        Message.EVERYONE -> "Everyone"
+        else -> a.sharing.other(partner)?.name ?: Messaging.store.nameOf(partner) ?: "Unknown device"
+    }
+
+    private fun clock(iso: String): String {
+        val ms = ShareJson.millis(iso)
+        val today = (System.currentTimeMillis() - ms) < 12 * 3600_000L
+        return (if (today) DateFormat.getTimeInstance(DateFormat.SHORT) else DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)).format(Date(ms))
+    }
+
+    /** The conversations: Everyone, then the people with messages or sharing now, the latest first. */
+    private fun messages() {
+        val store = Messaging.store
+        val people = (store.partners() + a.sharing.others().map { it.uid }).distinct().filter { it != Message.EVERYONE }
+        add(a.body("Messages go through the server when it can be reached, and over the mesh radio when not. Up to ${Message.MAX} characters.", muted = true, top = 12))
+        for (partner in listOf(Message.EVERYONE) + people) {
+            val last = store.conversation(partner).lastOrNull()
+            val unread = store.unread(partner)
+            val detail = (if (unread > 0) "$unread new · " else "") +
+                (last?.let { (if (it.mine) "You: " else "") + it.text } ?: if (partner == Message.EVERYONE) "All devices of this server" else "No messages yet")
+            add(a.row(nameOf(partner), detail) { showChat(partner, fromPeer = false) })
+        }
+    }
+
+    private fun chat() {
+        val partner = chatWith ?: return
+        Messaging.open = partner
+        Messaging.store.markRead(partner)
+        add(a.body(nameOf(partner), top = 12).apply { setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22f); typeface = android.graphics.Typeface.DEFAULT_BOLD })
+        chatList = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; layoutParams = lp() }.also(::add)
+        chatShown = ""
+        chatFill()
+        add(a.label("New Message"))
+        val text = a.field("Message", "", max = Message.MAX) {}
+        add(text)
+        val way = a.body("", muted = true, top = 4).also(::add)
+        fun say() { way.text = routeText(partner) }
+        say()
+        add(a.button("Send", Kind.PRIMARY) {
+            if (Messaging.send(partner, text.text.toString()) != null) { text.setText(""); hideKeyboard() }
+            say()
+        }.apply { layoutParams = lp(top = a.dp(8)) })
+    }
+
+    /** The messages of the open conversation, the latest 50; built again only when they changed. */
+    private fun chatFill() {
+        val partner = chatWith ?: return
+        val list = chatList ?: return
+        Messaging.store.markRead(partner)
+        val messages = Messaging.store.conversation(partner).takeLast(50)
+        val look = messages.joinToString { it.id + it.status + it.via }
+        if (look == chatShown) return
+        chatShown = look
+        list.removeAllViews()
+        if (messages.isEmpty()) list.addView(a.body("No messages yet.", muted = true, top = 8))
+        for (m in messages) {
+            val status = if (!m.mine) "" else " · " + when (m.status) {
+                MessageStatus.WAITING -> "Waiting"
+                MessageStatus.SENT -> if (m.via == "mesh") "Sent (Mesh)" else "Sent"
+                MessageStatus.DELIVERED -> if (m.via == "mesh") "Delivered (Mesh)" else "Delivered"
+            }
+            val via = if (!m.mine && m.via == "mesh") " · Mesh" else ""
+            list.addView(a.mono((if (m.mine) "You" else m.name) + " · " + clock(m.time) + status + via, 12f).apply { setPadding(0, a.dp(10), 0, 0) })
+            list.addView(a.body(m.text))
+        }
+    }
+
+    /** How a message written now would go. */
+    private fun routeText(partner: String): String {
+        val ways = Messaging.ways(partner)
+        return when {
+            ways.isEmpty() -> "No connection: messages wait and go out when the server or the mesh radio can be reached."
+            partner == Message.EVERYONE -> "Sends through " + ways.joinToString(" and ") { if (it == MessageRoute.Way.SERVER) "the server" else "the mesh radio" } + "."
+            ways.first() == MessageRoute.Way.SERVER -> "Sends through the server."
+            ways.first() == MessageRoute.Way.MESH_DIRECT -> "Sends over the mesh radio, straight to this device."
+            else -> "Sends over the mesh radio. A device that also reaches the server passes it on."
+        }
     }
 
     // What the Mesh Node panel was built from.

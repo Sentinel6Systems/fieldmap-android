@@ -94,6 +94,7 @@ class ShareService : Service() {
         // ...and the mesh radio, which carries the position where there is no network.
         MeshRadio.init(this)
         MeshRadio.use()
+        Messaging.init(this)
         instance = this
     }
 
@@ -248,8 +249,17 @@ class ShareService : Service() {
         if (r == null && (known == null || Http.route == Route.REMOTE)) r = atHome(places, body)
         if (r == null) r = outside(places.first(), body)
         val wait = when (r?.code) {
-            null -> 0L                                      // out of reach: the next position tries again
-            200, 204 -> { ShareLine.sentAt = SystemClock.elapsedRealtime(); 0L }
+            null -> { Messaging.serverBase = null; 0L }     // out of reach: the next position tries again
+            200, 204 -> {
+                ShareLine.sentAt = SystemClock.elapsedRealtime()
+                // In the background, messages are asked for with each position: a notification says when one came.
+                ShareLine.base?.takeIf { ShareLine.info.messages }?.let { base ->
+                    Messaging.serverBase = base
+                    Messaging.fetch(base)
+                    Messaging.push()
+                }
+                0L
+            }
             503 -> OFF_MS                                   // sharing switched off on the box: no faster than once a minute
             401, 403 -> REFUSED_MS                          // the gateway does not let this phone in: the app says why when it is opened
             404 -> { ShareLine.base = null; OFF_MS }

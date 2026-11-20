@@ -5,6 +5,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import io.github.sentinel6systems.fieldmap.data.Marker
+import io.github.sentinel6systems.fieldmap.data.Message
+import io.github.sentinel6systems.fieldmap.share.Messaging
 import io.github.sentinel6systems.fieldmap.share.Fix
 import io.github.sentinel6systems.fieldmap.share.MeshChannel
 import io.github.sentinel6systems.fieldmap.share.MeshMover
@@ -43,6 +45,12 @@ object MeshShare {
 
     private class Heard(val peer: Peer, val at: Long)
 
+    /** The radio (node number) of each Fieldmap device heard over the mesh, by its uid. */
+    val nodeOf = HashMap<String, Int>()
+    /** Text messages sent straight to a radio, waiting for Meshtastic's answer: packet id -> (message id, radio). */
+    private val acks = HashMap<Int, Pair<String, Int>>()
+    /** Ids of the text messages heard or sent over the mesh lately (a relay passes each on once). */
+    val textsHeard = HashMap<String, Long>()
     private val main = Handler(Looper.getMainLooper())
     private lateinit var prefs: Prefs
     private val peers = HashMap<String, Heard>()
@@ -120,6 +128,7 @@ object MeshShare {
     fun ready() {
         sentAt = 0
         flush()
+        Messaging.push()
     }
 
     /** Sends what waits, one marker every so often: the mesh is slow and shared. */
@@ -141,6 +150,7 @@ object MeshShare {
         message.position?.let { p ->
             val peer = MeshCodec.peer(p, System.currentTimeMillis()) ?: return@let
             if (peer.uid == prefs.uid) return@let
+            nodeOf[peer.uid] = from
             val last = seen[peer.uid]
             seen[peer.uid] = now()
             peers[peer.uid] = Heard(peer, now())
@@ -153,6 +163,34 @@ object MeshShare {
             markersHeard[change.id] = now()
             onMarker?.invoke(change) ?: inbox.add(change)
         }
+        message.text?.let { t ->
+            val m = MeshCodec.message(t) { peers[MeshCodec.uidText(t.from)]?.peer?.name } ?: return@let
+            if (m.from == prefs.uid) return@let
+            nodeOf[m.from] = from
+            textsHeard[m.id] = now()
+            Messaging.fromMesh(m)
+        }
+    }
+
+    /**
+     * Sends a text message: straight to `node` (and Meshtastic answers when it arrived), or to
+     * everybody when `node` is null. False when it cannot go over the mesh now (or does not fit).
+     */
+    fun sendText(m: Message, node: Int?): Boolean {
+        val bytes = MeshCodec.text(m) ?: return false
+        val id = MeshRadio.sendApp(bytes, node ?: MeshRadio.BROADCAST, wantAck = node != null) ?: return false
+        if (node != null) acks[id] = m.id to node
+        textsHeard[m.id] = now()
+        textsHeard.entries.removeAll { now() - it.value > TEXT_MEMORY_MS }
+        return true
+    }
+
+    /** Meshtastic's answer to a packet sent straight to a radio: from that radio itself, it arrived there. */
+    fun acked(packet: Int, from: Int, ok: Boolean) {
+        val (id, node) = acks[packet] ?: return
+        if (ok && from != node) return          // only a radio on the way heard it: not there yet
+        acks.remove(packet)
+        Messaging.meshAnswer(id, ok)
     }
 
     /** A Fieldmap device came near: after a random while (so that not all answer at once), the shared markers go out again. */
@@ -167,6 +205,7 @@ object MeshShare {
     }, Random.nextLong(5_000, 60_000))
 
     private const val MARKER_GAP_MS = 15_000L
+    private const val TEXT_MEMORY_MS = 60 * 60_000L
     private const val EDIT_WAIT_MS = 5_000L
     private const val NEW_AFTER_MS = 30 * 60_000L
     private const val RECENT_MS = 10 * 60_000L

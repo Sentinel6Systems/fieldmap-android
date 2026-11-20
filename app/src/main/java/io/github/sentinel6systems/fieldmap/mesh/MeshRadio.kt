@@ -22,6 +22,7 @@ import org.meshtastic.proto.Data
 import org.meshtastic.proto.FromRadio
 import org.meshtastic.proto.MeshPacket
 import org.meshtastic.proto.PortNum
+import org.meshtastic.proto.Routing
 import org.meshtastic.proto.ToRadio
 import kotlin.random.Random
 
@@ -228,6 +229,11 @@ object MeshRadio {
                     if (status == Status.READY && d != null && d.portnum == PortNum.PRIVATE_APP && p.channel == RadioSetup.ourIndex(prefs.meshReadOnly)) {
                         MeshShare.received(p.from, d.payload.toByteArray())
                     }
+                    // Meshtastic's answer to a packet that wanted one: it arrived, or it could not.
+                    if (d != null && d.portnum == PortNum.ROUTING_APP && d.request_id != 0) {
+                        val routing = try { Routing.ADAPTER.decode(d.payload) } catch (e: Exception) { null }
+                        MeshShare.acked(d.request_id, p.from, routing?.error_reason == null || routing.error_reason == Routing.Error.NONE)
+                    }
                 }
                 onChange()
             }
@@ -285,14 +291,22 @@ object MeshRadio {
      * Sends one of Fieldmap's own messages to everybody on the server's channel. False when the
      * radio is not ready for it (not connected, or not set up for the server's mesh).
      */
-    fun sendApp(payload: ByteArray): Boolean {
-        val link = link ?: return false
-        if (status != Status.READY) return false
+    fun sendApp(payload: ByteArray): Boolean = sendApp(payload, BROADCAST, wantAck = false) != null
+
+    /**
+     * The same to one radio (`to`, its node number) or to everybody (BROADCAST). With `wantAck`,
+     * Meshtastic confirms that it arrived (MeshShare.acked). Returns the packet's id; null when
+     * the radio is not ready.
+     */
+    fun sendApp(payload: ByteArray, to: Int, wantAck: Boolean): Int? {
+        val link = link ?: return null
+        if (status != Status.READY) return null
+        val id = Random.nextInt(1, Int.MAX_VALUE)
         link.send(ToRadio(packet = MeshPacket(
-            to = BROADCAST, channel = RadioSetup.ourIndex(prefs.meshReadOnly), id = Random.nextInt(1, Int.MAX_VALUE),
+            to = to, channel = RadioSetup.ourIndex(prefs.meshReadOnly), id = id, want_ack = wantAck,
             decoded = Data(portnum = PortNum.PRIVATE_APP, payload = payload.toByteString()),
         )))
-        return true
+        return id
     }
 
     /** Try connecting now (after a failure, or when Bluetooth came back on). */
@@ -306,5 +320,5 @@ object MeshRadio {
     private const val RETRY_MS = 10_000L
     private const val MAX_TRIES = 2
     private const val NEARBY_S = 2 * 3600L
-    private const val BROADCAST = -1             // 0xffffffff: every radio
+    const val BROADCAST = -1                     // 0xffffffff: every radio
 }

@@ -16,6 +16,7 @@ import io.github.sentinel6systems.fieldmap.share.ShareInfo
 import io.github.sentinel6systems.fieldmap.share.ShareJson
 import io.github.sentinel6systems.fieldmap.share.ShareLine
 import io.github.sentinel6systems.fieldmap.share.ShareMerge
+import io.github.sentinel6systems.fieldmap.share.Messaging
 import io.github.sentinel6systems.fieldmap.share.ShareService
 import io.github.sentinel6systems.fieldmap.share.ShareState
 import kotlinx.coroutines.CancellationException
@@ -186,6 +187,7 @@ class Sharing(private val a: MainActivity) {
         if (look != drawn) { drawn = look; a.peersChanged() }
         val words = summary() + live
         if (words != said) { said = words; a.shareChanged() }
+        if (!a.reachable || box != Box.ON || !info.messages) Messaging.serverBase = null
         if (a.prefs.server == null || !a.reachable || busy || now() < nextAt) return
         busy = true
         editedInRound = false
@@ -217,6 +219,13 @@ class Sharing(private val a: MainActivity) {
         val state = ShareJson.state(r.body) ?: return every
         if (home != a.prefs.server || box != Box.ON) return 0      // another server was set meanwhile
         take(state)
+        // Messages ride on the same round: what came, and what waits to go.
+        Messaging.serverPeers = peers.map { it.uid }.toSet()
+        Messaging.serverBase = to.takeIf { info.messages }
+        if (info.messages) {
+            Messaging.fetch(to)
+            Messaging.push()
+        }
         return push(to) ?: every
     }
 

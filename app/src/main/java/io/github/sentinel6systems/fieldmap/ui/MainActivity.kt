@@ -64,6 +64,7 @@ import io.github.sentinel6systems.fieldmap.server.Route
 import io.github.sentinel6systems.fieldmap.server.TileServer
 import io.github.sentinel6systems.fieldmap.share.Ageing
 import io.github.sentinel6systems.fieldmap.share.Fix
+import io.github.sentinel6systems.fieldmap.share.Messaging
 import io.github.sentinel6systems.fieldmap.share.ShareJson
 import io.github.sentinel6systems.fieldmap.share.ShareService
 import io.github.sentinel6systems.fieldmap.share.toFix
@@ -205,6 +206,8 @@ class MainActivity : AppCompatActivity() {
         panels = Panels(this)
         MeshRadio.init(this)
         MeshRadio.onChange = { panels.refresh(); nodesChanged() }
+        Messaging.init(this)
+        Messaging.onChange = { panels.refresh() }
         MeshShare.markers = { markers.markers }
         MeshShare.onPeers = { peersChanged(); panels.refresh() }
         MeshShare.onMarker = { sharing.fromMesh(it) }
@@ -1333,6 +1336,8 @@ class MainActivity : AppCompatActivity() {
             panels.peerTick()
             // Every quarter of a minute, and more often right after opening while nothing answers.
             if (ticks % 15 == 0 || (ticks < 6 && !reachable)) probe()
+            // Messages that wait try again, by whatever way there is now.
+            if (ticks % 15 == 7) Messaging.push()
             ticks++
             ticker.postDelayed(this, 1000)
         }
@@ -1347,6 +1352,8 @@ class MainActivity : AppCompatActivity() {
         keepSharing()
         // The paired mesh radio is connected while the app is in view.
         MeshRadio.use()
+        // In view, new messages show in the app; out of it, in a notification.
+        Messaging.shown = true
     }
 
     override fun onResume() {
@@ -1370,6 +1377,7 @@ class MainActivity : AppCompatActivity() {
         // Nobody looks at the map: the NetBird client stops (after a minute), unless the sharing service needs it.
         NetBirdLink.release(SCREEN, atOnce = isFinishing)
         MeshRadio.release()
+        Messaging.shown = false
         super.onStop()
     }
     override fun onLowMemory() { super.onLowMemory(); b.map.onLowMemory() }
@@ -1383,6 +1391,7 @@ class MainActivity : AppCompatActivity() {
         MeshShare.markers = null
         MeshShare.onPeers = {}
         MeshShare.onMarker = null
+        Messaging.onChange = {}
         areas.onChange = {}
         areas.onSaved = {}
         b.map.onDestroy()

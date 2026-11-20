@@ -2,9 +2,12 @@ package io.github.sentinel6systems.fieldmap.mesh
 
 import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.Marker
+import io.github.sentinel6systems.fieldmap.data.Message
+import io.github.sentinel6systems.fieldmap.data.MessageStatus
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshMarker
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshMessage
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshPosition
+import io.github.sentinel6systems.fieldmap.mesh.proto.MeshText
 import io.github.sentinel6systems.fieldmap.share.Fix
 import io.github.sentinel6systems.fieldmap.share.Peer
 import io.github.sentinel6systems.fieldmap.share.ShareJson
@@ -79,6 +82,29 @@ object MeshCodec {
         val by = uidText(m.by_).orEmpty()
         return MeshMarkerChange(m.id, Marker(m.id, lat, lon, m.label.filterNot { it.isISOControl() }.trim().take(Drawings.MAX_LABEL),
             "#%06x".format(m.color and 0xffffff), shared = true, updated = at, by = by), at)
+    }
+
+    /** What fits one Meshtastic packet. */
+    const val MAX_PAYLOAD = 233
+
+    /** A text message; without the sender's name when it would not fit, null when even that does not fit (many emoji). */
+    fun text(m: Message): ByteArray? {
+        fun encode(name: String) = MeshMessage.ADAPTER.encode(MeshMessage(text = MeshText(
+            id = m.id, from = uidBytes(m.from), name = name, to = if (m.to == Message.EVERYONE) ByteString.EMPTY else uidBytes(m.to),
+            text = m.text, time = (ShareJson.millis(m.time) / 1000).toInt(),
+        )))
+        return encode(m.name).takeIf { it.size <= MAX_PAYLOAD } ?: encode("").takeIf { it.size <= MAX_PAYLOAD }
+    }
+
+    /** A text message heard over the mesh; `name`: the sender's name when the message left it out. */
+    fun message(t: MeshText, name: () -> String?): Message? {
+        val from = uidText(t.from) ?: return null
+        val to = if (t.to.size == 0) Message.EVERYONE else uidText(t.to) ?: return null
+        val text = Message.clean(t.text)
+        if (!ShareJson.ID.matches(t.id) || text.isEmpty()) return null
+        val time = ShareJson.time((t.time.toLong() and 0xffffffffL) * 1000)
+        return Message(t.id, from, ShareJson.name(t.name).ifEmpty { name() ?: "?" }, to, text, time, mine = false,
+            status = MessageStatus.DELIVERED, via = "mesh")
     }
 
     fun rgb(hex: String): Int = hex.removePrefix("#").toIntOrNull(16)?.and(0xffffff) ?: 0

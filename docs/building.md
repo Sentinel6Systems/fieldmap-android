@@ -180,7 +180,8 @@ NetBird network also, the owner deletes it on the NetBird dashboard.
 | `.../remote/` | Pairing: the device's key, being let in by the server, its addresses, the connection to its gateway. NetBird as a second way: what the server says about it and the rules for the order of the ways (`NetBird`), the client and its start and stop (`NetBirdLink`), the stored setup key (`Secret`) |
 | `nblink/` | The NetBird client of the app: a small Go package around NetBird's own client, and the script that builds it for Android |
 | `.../offline/` | Offline areas on top of MapLibre's offline regions; counting tiles and estimating sizes |
-| `.../data/` | Markers and their file format |
+| `.../data/` | Markers and their file format; messages, how they are kept on the device, and which way each one goes (`Messages`) |
+| `.../share/Messaging.kt` | Messages: sending by the way there is, asking the server for new ones, passing them on between the server and the mesh (a relay), notifications |
 | `.../share/` | Live sharing: what is sent to and read from the server's `/mapshare/` service, bringing shared markers together (last change wins), how a position ages, and the service that keeps the position shared in the background (`ShareService`) |
 | `.../mesh/` | The Meshtastic radio: the Bluetooth link (`RadioLink`), finding, pairing and connecting (`MeshRadio`), what the radio needs for the server's mesh (`RadioSetup`), and Location Sharing over the mesh (`MeshShare`, with the messages in `MeshCodec`) |
 | `app/src/main/proto/fieldmap/` | Fieldmap's own messages over the mesh (positions, shared markers), sent on Meshtastic's private-app port on the server's channel |

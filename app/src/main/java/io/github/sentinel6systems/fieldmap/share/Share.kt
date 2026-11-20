@@ -19,7 +19,7 @@ import kotlin.math.abs
  * is dropped. `mesh`: the rev of the server's mesh radio channel ("" when it gives none), to tell
  * when the channel changed.
  */
-data class ShareInfo(val enabled: Boolean, val interval: Int, val stale: Int, val mesh: String = "")
+data class ShareInfo(val enabled: Boolean, val interval: Int, val stale: Int, val mesh: String = "", val messages: Boolean = false)
 
 /**
  * The server's private channel for Meshtastic radios, as the server gave it out: what the app
@@ -81,7 +81,7 @@ object ShareJson {
         if (o.optInt("version", 0) < 1 && !o.has("enabled")) return null
         val interval = o.optInt("interval", 5).coerceIn(2, 600)
         val mesh = (o.opt("mesh") as? String)?.takeIf { REV.matches(it) }.orEmpty()
-        return ShareInfo(o.optBoolean("enabled", true), interval, o.optInt("stale", 120).coerceIn(2 * interval, 86_400), mesh)
+        return ShareInfo(o.optBoolean("enabled", true), interval, o.optInt("stale", 120).coerceIn(2 * interval, 86_400), mesh, o.optBoolean("messages"))
     }
 
     private val REV = Regex("^[A-Za-z0-9-]{1,64}$")
