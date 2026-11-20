@@ -12,6 +12,7 @@ import io.github.sentinel6systems.fieldmap.remote.identityFits
 import io.github.sentinel6systems.fieldmap.remote.netbirdFrom
 import io.github.sentinel6systems.fieldmap.server.RemoteEnd
 import okhttp3.OkHttpClient
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -85,6 +86,18 @@ class NetBirdTest {
         // The box has another address or port on the same network.
         assertEquals(BlockChange.RESTART, blockChange(block, block.copy(host = "192.0.2.8", rev = "b")))
         assertEquals(BlockChange.RESTART, blockChange(block, block.copy(port = 40000, rev = "b")))
+    }
+
+    @Test
+    fun `network isolation on the server changes only the key`() {
+        // The server set up network isolation: devices get its own device key instead of the one the owner typed.
+        // A device that is a member already keeps its identity and does not join again (the server moves it into
+        // its group in NetBird); a device that joins later gets the group from the key, inside NetBird.
+        val isolated = block.copy(setupKey = "server-device-key-0001", rev = "c")
+        assertEquals(BlockChange.STORE, blockChange(block, isolated))
+        assertEquals(BlockChange.REJOIN, blockChange(null, isolated))
+        // Nothing in the block names a group: the app never chooses its segment.
+        assertEquals(block, netbirdFrom(JSONObject(text).put("groups", JSONArray(listOf("someone-else")))))
     }
 
     @Test

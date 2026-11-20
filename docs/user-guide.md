@@ -164,6 +164,10 @@ What to expect:
 
 Download your offline areas on the local network, not over NetBird, when you can.
 
+If the owner runs several servers in one NetBird account, each server can keep its devices apart from the others
+(**Network Isolation** on the server). The app does the same either way: a device reaches only the server it is
+paired with.
+
 The server owner can see the device (as "Fieldmap" with its make and model) in their NetBird dashboard. The setup
 key is stored encrypted on the device and never shown. **Unpair Device** deletes it.
 

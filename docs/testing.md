@@ -110,7 +110,8 @@ in the NetBird network.
 
 The unit tests for NetBird cover: reading the block of the server, the answers of the gateway, what a changed block
 means, the order of the ways (the local network, the direct addresses, NetBird), the wait after a start that
-failed, and the rules that stop the client.
+failed, the rules that stop the client, and that network isolation on the server changes only the key (no new
+join, no group chosen by the app). Network isolation itself is the server's: see fieldmap-server's tests.
 
 ## Not tested yet
 
