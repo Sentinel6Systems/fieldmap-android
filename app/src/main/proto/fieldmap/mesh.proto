@@ -14,6 +14,7 @@ message MeshMessage {
     MeshPosition position = 1;
     MeshMarker marker = 2;
     MeshText text = 3;
+    MeshDelivered delivered = 4;
   }
 }
 
@@ -54,4 +55,11 @@ message MeshText {
   bytes to = 4;              // the uid it is for; empty: everybody
   string text = 5;           // at most 140 characters
   uint32 time = 6;           // when it was written, seconds since 1970
+}
+
+// Messages of a device on the mesh only that a relay passed on to the server and that reached
+// the device they were for: so that their sender sees them as delivered.
+message MeshDelivered {
+  bytes to = 1;              // the uid of the device that sent them
+  repeated string ids = 2;
 }

@@ -1056,19 +1056,22 @@ class MainActivity : AppCompatActivity() {
      * Android 13 and later ask before an app may show a notification. Sharing goes on either
      * way; once allowed, the notification that says so is put up again, to be seen.
      */
-    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { allowed -> if (allowed) keepSharing() }
+    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { allowed -> if (allowed) keepRunning() }
     private var notifyAsked = false
 
     /**
      * Has the position kept shared when the app leaves the screen. Only once the position
      * may be used, and only from here, with the app in view: Android allows no other start.
      */
-    private fun keepSharing() {
-        if (!sharing.on || !mayLocate()) return
+    /**
+     * Fieldmap runs in the background from the moment it is opened until Exit: location sharing
+     * (while on), messages, the mesh radio. Called again when sharing or the radio changes, so
+     * that the service says what it does now.
+     */
+    private fun keepRunning() {
         ShareService.start(this)
-        // The notification that says sharing is on needs its own permission on newer Androids.
-        // Asked while it is missing, once each time the app is opened: also where sharing was
-        // on already, from before the app had this notification.
+        // Its notification, and those of new messages, need their own permission on newer
+        // Androids. Asked while it is missing, once each time the app is opened.
         if (!notifyAsked && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notifyAsked = true
             askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -1077,6 +1080,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Closes the app for good: the position goes from the others' maps, and nothing runs on. */
     internal fun quit() {
+        // The one way to end Fieldmap: the background service stops too.
         sharing.closing()
         finishAndRemoveTask()
     }
@@ -1088,7 +1092,7 @@ class MainActivity : AppCompatActivity() {
             panels.rebuild(Screen.SHARING)
             // Switched on by hand: worth asking about the notification again.
             notifyAsked = false
-            keepSharing()
+            keepRunning()
         }
         if (mayLocate()) {
             if (!locationOn) style?.let(::startLocation)
@@ -1349,7 +1353,7 @@ class MainActivity : AppCompatActivity() {
         // In view, the app sends the position itself; the service waits, ready to take over.
         ShareService.shown(true)
         NetBirdLink.use(SCREEN)
-        keepSharing()
+        keepRunning()
         // The paired mesh radio is connected while the app is in view.
         MeshRadio.use()
         // In view, new messages show in the app; out of it, in a notification.
@@ -1385,7 +1389,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         // Closed for good: this phone's position goes from the box at once.
-        if (isFinishing) sharing.closing()
         scope.cancel()
         MeshRadio.onChange = {}
         MeshShare.markers = null

@@ -8,6 +8,9 @@
     <!-- Sharing the position goes on with the app in the background: a service that says so in a notification. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- The same service keeps the mesh radio connected and messages coming while the app is in the background. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- A Meshtastic radio over Bluetooth (Menu > Mesh Radio): to find it, and to talk to it. The search
@@ -43,6 +46,6 @@
         <service
             android:name=".share.ShareService"
             android:exported="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="location|connectedDevice|remoteMessaging" />
     </application>
 </manifest>

@@ -154,7 +154,8 @@ object MeshShare {
             val last = seen[peer.uid]
             seen[peer.uid] = now()
             peers[peer.uid] = Heard(peer, now())
-            if (last == null || now() - last > NEW_AFTER_MS) announceLater()
+            // Shared markers go out again for a device that came near; only while the app is on the screen.
+            if ((last == null || now() - last > NEW_AFTER_MS) && Messaging.shown) announceLater()
             onPeers()
         }
         message.marker?.let { m ->
@@ -170,6 +171,9 @@ object MeshShare {
             textsHeard[m.id] = now()
             Messaging.fromMesh(m)
         }
+        message.delivered?.let { d ->
+            if (MeshCodec.uidText(d.to) == prefs.uid) Messaging.deliveredOverMesh(d.ids)
+        }
     }
 
     /**
@@ -183,6 +187,12 @@ object MeshShare {
         textsHeard[m.id] = now()
         textsHeard.entries.removeAll { now() - it.value > TEXT_MEMORY_MS }
         return true
+    }
+
+    /** A delivery note to the radio of `uid`: these messages of theirs arrived. */
+    fun sendDelivered(uid: String, ids: List<String>): Boolean {
+        val node = nodeOf[uid] ?: return false
+        return MeshRadio.sendApp(MeshCodec.delivered(uid, ids), node, wantAck = false) != null
     }
 
     /** Meshtastic's answer to a packet sent straight to a radio: from that radio itself, it arrived there. */

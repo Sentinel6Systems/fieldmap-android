@@ -16,6 +16,8 @@ import android.hardware.TriggerEventListener
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Build
+import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
@@ -70,6 +72,7 @@ fun Location.toFix(): Fix = Fix(
  */
 class ShareService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val main = Handler(Looper.getMainLooper())
     private lateinit var prefs: Prefs
     private lateinit var locations: LocationManager
     private var awake: PowerManager.WakeLock? = null
@@ -98,29 +101,68 @@ class ShareService : Service() {
         instance = this
     }
 
-    @SuppressLint("InlinedApi")                 // the kind of service is a plain number, and older Androids take no notice of it
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) {
-            // "Stop sharing" on the notification: as the button in the app.
+            // "Stop Sharing" on the notification: as the button in the app. The rest goes on.
             prefs.shareOn = false
-            leaveAndStop()
-            return START_NOT_STICKY
+            MeshShare.reset()
+            leave()
         }
         try {
-            ServiceCompat.startForeground(this, NOTIFICATION, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            ServiceCompat.startForeground(this, NOTIFICATION, notification(), kinds())
         } catch (e: Exception) {
-            // Without the location permission, or started from where Android does not allow it.
+            // Started from where Android does not allow it: the app does all of it while it is open.
             stopSelf()
             return START_NOT_STICKY
         }
         watch()
+        main.removeCallbacks(poll)
+        main.postDelayed(poll, POLL_MS)
         // Not started again by Android after it had to end it: a position may only be taken
         // from the background by something the person started while the app was in view.
         return START_NOT_STICKY
     }
 
-    /** Swiped away from the recent apps: closed for good. */
-    override fun onTaskRemoved(rootIntent: Intent?) = leaveAndStop()
+    /**
+     * What the service does in the foreground, as Android wants it said: the location while
+     * sharing is on, the mesh radio while one is paired, and messages (Android 14 and newer).
+     */
+    @SuppressLint("InlinedApi")                 // the kinds are plain numbers, and older Androids take no notice of them
+    private fun kinds(): Int {
+        var kinds = 0
+        if (prefs.shareOn && mayLocate()) kinds = kinds or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        if (prefs.radioAddress != null && MeshRadio.allowed()) kinds = kinds or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        if (Build.VERSION.SDK_INT >= 34) kinds = kinds or ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
+        return kinds
+    }
+
+    private fun mayLocate() = listOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+        .any { ContextCompat.checkSelfPermission(this, it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+
+    /**
+     * New messages are asked for every so often while the app is not on the screen (with each
+     * position too, while sharing is on), kept, and a notification says one is waiting.
+     */
+    private val poll = object : Runnable {
+        override fun run() {
+            if (!appShown) {
+                // Only new messages are taken in (kept, and a notification): nothing is sent from here.
+                ShareLine.base?.takeIf { ShareLine.info.messages }?.let { base ->
+                    awake?.acquire(AWAKE_MS)
+                    scope.launch {
+                        try { Messaging.fetch(base) } finally { awake?.let { if (it.isHeld) it.release() } }
+                    }
+                }
+            }
+            main.postDelayed(this, POLL_MS)
+        }
+    }
+
+    /**
+     * Swiped away from the recent apps: Fieldmap goes on in the background (location sharing,
+     * messages, the mesh radio). Only Exit in the app's Menu ends it.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {}
 
     override fun onDestroy() {
         if (instance === this) instance = null
@@ -138,6 +180,7 @@ class ShareService : Service() {
         if (leaving) return
         leaving = true
         listen(0)
+        main.removeCallbacks(poll)
         val to = ShareLine.base
         val sent = ShareLine.sentAt != 0L
         ShareLine.sentAt = 0
@@ -146,9 +189,20 @@ class ShareService : Service() {
         thread { try { ShareClient.postNow(to + "leave", body) } finally { stopSelf() } }
     }
 
+    /** Sharing switched off from the notification: this phone goes from the others' maps; the service goes on. */
+    private fun leave() {
+        listen(0)
+        val to = ShareLine.base ?: return
+        if (ShareLine.sentAt == 0L) return
+        ShareLine.sentAt = 0
+        val body = ShareJson.leave(prefs.uid)
+        thread { ShareClient.postNow(to + "leave", body) }
+    }
+
     /** The app came into view or left it: wait, or take over. */
     private fun watch() {
-        if (appShown) { listen(0); mover.nudge() } else pace()
+        // The position only while sharing is on: otherwise the satellite receiver stays off.
+        if (appShown || !prefs.shareOn) { listen(0); mover.nudge() } else pace()
     }
 
     private fun pace() = listen(if (mover.still) Pace.still(ShareLine.info) else Pace.moving(ShareLine.info))
@@ -252,12 +306,8 @@ class ShareService : Service() {
             null -> { Messaging.serverBase = null; 0L }     // out of reach: the next position tries again
             200, 204 -> {
                 ShareLine.sentAt = SystemClock.elapsedRealtime()
-                // In the background, messages are asked for with each position: a notification says when one came.
-                ShareLine.base?.takeIf { ShareLine.info.messages }?.let { base ->
-                    Messaging.serverBase = base
-                    Messaging.fetch(base)
-                    Messaging.push()
-                }
+                // In the background, new messages are asked for with each position: a notification says when one came.
+                ShareLine.base?.takeIf { ShareLine.info.messages }?.let { base -> Messaging.fetch(base) }
                 0L
             }
             503 -> OFF_MS                                   // sharing switched off on the box: no faster than once a minute
@@ -329,19 +379,23 @@ class ShareService : Service() {
 
     private fun notification(): Notification {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Location Sharing", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Shows when the app shares the location of this device."
+        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Fieldmap Running", NotificationManager.IMPORTANCE_LOW).apply {
+            description = "Shows while Fieldmap runs in the background: location sharing, messages, the mesh radio."
             setShowBadge(false)
         })
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, ShareService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE)
+        val sharing = prefs.shareOn
+        val radio = prefs.radioAddress != null
+        val what = listOfNotNull("location sharing".takeIf { sharing }, "new messages").joinToString(" and ")
         return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_locate)
-            .setContentTitle("Location Sharing Active")
-            .setContentText("Sharing continues when you leave the app. Exit Fieldmap to stop it.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("Sharing continues when you leave the app or the screen turns off. To stop, press Stop Sharing or exit Fieldmap."))
+            .setSmallIcon(if (sharing) R.drawable.ic_locate else R.drawable.ic_message)
+            .setContentTitle(if (sharing) "Location Sharing Active" else "Fieldmap Running")
+            .setContentText("Keeps $what in the background. Exit Fieldmap in its Menu to stop.")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("When you leave Fieldmap or swipe it away, it keeps $what" +
+                (if (radio) " (also over the mesh radio)" else "") + ". To stop it, open Fieldmap and press Exit in the Menu."))
             .setContentIntent(open)
-            .addAction(0, "Stop Sharing", stop)
+            .apply { if (sharing) addAction(0, "Stop Sharing", stop) }
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -358,6 +412,8 @@ class ShareService : Service() {
         private const val AWAKE_MS = 20_000L
         private const val OFF_MS = 60_000L
         private const val REFUSED_MS = 300_000L
+        /** How often messages are asked for in the background. */
+        private const val POLL_MS = 60_000L
         /** This service, as a user of the NetBird client. */
         private const val SHARING = "sharing"
 

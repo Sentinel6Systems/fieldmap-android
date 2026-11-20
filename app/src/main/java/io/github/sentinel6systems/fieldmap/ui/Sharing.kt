@@ -104,7 +104,8 @@ class Sharing(private val a: MainActivity) {
     fun switchOff() {
         a.prefs.shareOn = false
         MeshShare.reset()
-        ShareService.stop(a)
+        // The background service goes on (messages, the mesh radio), without the location.
+        ShareService.start(a)
         if (busy) leaveAfter = true else leave()
         a.shareChanged()
     }

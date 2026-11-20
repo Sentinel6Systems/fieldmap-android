@@ -4,6 +4,7 @@ import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.Message
 import io.github.sentinel6systems.fieldmap.data.MessageStatus
+import io.github.sentinel6systems.fieldmap.mesh.proto.MeshDelivered
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshMarker
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshMessage
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshPosition
@@ -94,6 +95,16 @@ object MeshCodec {
             text = m.text, time = (ShareJson.millis(m.time) / 1000).toInt(),
         )))
         return encode(m.name).takeIf { it.size <= MAX_PAYLOAD } ?: encode("").takeIf { it.size <= MAX_PAYLOAD }
+    }
+
+    /** These messages of `to` reached the device they were for (sent by a relay). As many ids as fit one packet. */
+    fun delivered(to: String, ids: List<String>): ByteArray {
+        var take = ids.size
+        while (true) {
+            val bytes = MeshMessage.ADAPTER.encode(MeshMessage(delivered = MeshDelivered(to = uidBytes(to), ids = ids.take(take))))
+            if (bytes.size <= MAX_PAYLOAD || take <= 1) return bytes
+            take--
+        }
     }
 
     /** A text message heard over the mesh; `name`: the sender's name when the message left it out. */

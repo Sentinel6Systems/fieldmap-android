@@ -23,12 +23,17 @@ import io.github.sentinel6systems.fieldmap.ui.Prefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 
 /**
  * Short text messages between the devices of a server, by whichever way there is (see
  * MessageRoute): the server at home or through the remote link, or the mesh radio.
+ *
+ * In the background (the app not on the screen) messages are only taken in: kept, and a
+ * notification says one is waiting. Sending what waits and passing messages on (relaying)
+ * happen while the app is on the screen.
  *
  * A device that has both the server and the mesh radio passes messages on (a relay): messages
  * on the server for people heard only over the mesh go to their radios, and messages heard over
@@ -54,7 +59,9 @@ object Messaging {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val posting = HashSet<String>()                 // ids on their way to the server
     private val notDirect = HashSet<String>()               // ids that did not reach a radio directly: another way next
-    private val relayed = HashMap<String, String>()         // ids passed on to a radio for the server -> the uid it is for
+    private val relayed = HashMap<String, String>()         // ids passed on (or to be) from the server to the mesh -> the uid it is for
+    private val passedOn = LinkedHashMap<String, String>()  // ids passed on from the mesh to the server -> the uid that sent it
+    private val noted = HashSet<String>()                   // ids whose sender was told over the mesh that they arrived
     private var fetching = false
 
     fun init(c: Context) {
@@ -64,7 +71,7 @@ object Messaging {
         store = MessageStore(File(context.filesDir, "messages.json"))
     }
 
-    /** Writes a message to one person (their uid) or to everybody (Message.EVERYONE). */
+    /** Writes a message to one person (their uid), to everybody of the server (Message.EVERYONE), or on the public channel (Message.PUBLIC). */
     fun send(to: String, typed: String): Message? {
         val text = Message.clean(typed)
         if (text.isEmpty()) return null
@@ -83,8 +90,12 @@ object Messaging {
 
     /** Sends what waits, each by the way there is now. */
     fun push() {
-        if (!::store.isInitialized) return
+        if (!::store.isInitialized || !shown) return
         for (m in store.waiting()) {
+            if (m.to == Message.PUBLIC) {
+                if (MeshRadio.sendPublic(m.text)) sent(m.id, "mesh")
+                continue
+            }
             for (way in ways(m.to, m.id)) when (way) {
                 MessageRoute.Way.SERVER -> post(m)
                 MessageRoute.Way.MESH_DIRECT -> if (MeshShare.sendText(m, MeshShare.nodeOf[m.to])) sent(m.id, "mesh")
@@ -93,8 +104,15 @@ object Messaging {
         }
     }
 
+    /** A message went out one way. One that goes both ways (to everybody) says so: "server+mesh". */
     private fun sent(id: String, via: String) {
-        store.update(id) { if (it.status == MessageStatus.WAITING) it.copy(status = MessageStatus.SENT, via = via) else it }
+        store.update(id) {
+            when {
+                it.status == MessageStatus.WAITING -> it.copy(status = MessageStatus.SENT, via = via)
+                via !in it.via.split("+") -> it.copy(via = listOf(it.via, via).sorted().joinToString("+"))
+                else -> it
+            }
+        }
         onChange()
     }
 
@@ -137,23 +155,27 @@ object Messaging {
         fetching = true
         try {
             val me = prefs.uid
-            val meshReady = MeshRadio.status == MeshRadio.Status.READY
-            val carried = if (meshReady) MeshShare.others().map { it.uid }.filter { it !in serverPeers && it in MeshShare.nodeOf }.take(7) else emptyList()
+            // A relay only while the app is on the screen; in the background just this device's messages.
+            val meshReady = shown && MeshRadio.status == MeshRadio.Status.READY
+            // People heard only over the mesh, who get their messages from a relay; and people whose
+            // mesh messages were passed on to the server, who learn here that they were delivered.
+            val carried = if (meshReady) MeshShare.others().map { it.uid }.filter { it !in serverPeers && it in MeshShare.nodeOf } else emptyList()
+            val asked = (listOf(me) + carried + passedOn.values.takeIf { shown }.orEmpty()).distinct().take(MAX_FOR)
             val since = prefs.messageSeq.takeIf { prefs.messageSeqFor == base }
-            val r = ShareClient.get(base + "messages?for=" + (listOf(me) + carried).joinToString(",") + (since?.let { "&since=$it" } ?: ""))
+            val r = ShareClient.get(base + "messages?for=" + asked.joinToString(",") + (since?.let { "&since=$it" } ?: ""))
             val answer = (if (r.code == 200) MessageJson.fromServer(r.body) else null) ?: return
             val mine = ArrayList<String>()
             for (m in answer.messages) {
                 if (m.to == me || m.to == Message.EVERYONE) receive(m)
                 if (m.to == me) mine += m.id
-                if (m.to in carried && m.id !in relayed && m.id !in MeshShare.textsHeard) {
-                    if (MeshShare.sendText(m, MeshShare.nodeOf[m.to])) relayed[m.id] = m.to
-                }
-                // To everybody, from somebody the mesh has not heard: the people on the mesh get it from here.
-                if (m.to == Message.EVERYONE && meshReady && m.from !in MeshShare.nodeOf && m.id !in MeshShare.textsHeard) MeshShare.sendText(m, null)
+                val forMesh = (m.to in carried && m.to in asked) || (m.to == Message.EVERYONE && m.from !in MeshShare.nodeOf)
+                if (meshReady && forMesh && m.id !in MeshShare.textsHeard && m.id !in relayed) relayLater(m, base)
             }
             if (mine.isNotEmpty()) ShareClient.post(base + "messages/delivered", MessageJson.delivered(mine, me))
             for (id in answer.delivered) store.update(id) { it.copy(status = MessageStatus.DELIVERED) }
+            // Delivered messages of mesh people that a relay passed on: their senders are told over the mesh.
+            val notes = answer.delivered.filter { it in passedOn && it !in noted }.groupBy { passedOn.getValue(it) }
+            if (shown) for ((uid, ids) in notes) if (MeshShare.sendDelivered(uid, ids)) noted += ids
             prefs.messageSeq = answer.seq
             prefs.messageSeqFor = base
             if (answer.delivered.isNotEmpty()) onChange()
@@ -162,12 +184,69 @@ object Messaging {
         }
     }
 
+    /** The devices heard both through the server and over the mesh, this one too: the relays. */
+    private fun relays(): List<String> = (serverPeers.filter { it in MeshShare.nodeOf } + prefs.uid).distinct()
+
+    /**
+     * Passes a message from the server on over the mesh: at once when this device is the one to do
+     * it (MessageRoute.relay), otherwise after a while and only when it has not gone out by then.
+     */
+    private fun relayLater(m: Message, base: String) {
+        relayed[m.id] = m.to
+        val first = MessageRoute.relay(m.id, relays()) == prefs.uid
+        if (first) return relayNow(m)
+        scope.launch {
+            delay(MessageRoute.RELAY_BACKUP_MS)
+            if (m.id in MeshShare.textsHeard) return@launch                     // a broadcast went out: heard
+            if (m.to != Message.EVERYONE) {
+                // Straight to a radio: nobody else hears that. The server says whether it is still waiting.
+                val r = ShareClient.get(base + "messages?for=" + m.to)
+                val waiting = (if (r.code == 200) MessageJson.fromServer(r.body) else null)?.messages?.any { it.id == m.id } ?: false
+                if (!waiting) return@launch
+            }
+            relayNow(m)
+        }
+    }
+
+    private fun relayNow(m: Message) {
+        if (m.to == Message.EVERYONE) MeshShare.sendText(m, null)
+        else if (!MeshShare.sendText(m, MeshShare.nodeOf[m.to])) relayed.remove(m.id)
+    }
+
+    /** A relay says that these messages of this device reached the device they were for. */
+    fun deliveredOverMesh(ids: List<String>) {
+        if (!::store.isInitialized) return
+        for (id in ids) store.update(id) { if (it.mine) it.copy(status = MessageStatus.DELIVERED) else it }
+        onChange()
+    }
+
+    /**
+     * A text heard on Meshtastic's public channel, from radio `node` named `name`. Kept like the
+     * others, under Group (Public); no notification (the public channel can be busy).
+     */
+    fun publicHeard(node: Int, name: String, packet: Int, text: String, rxTime: Int) {
+        if (!::store.isInitialized) return
+        // Meshtastic's own texts may be longer than Fieldmap's: kept whole, on one line.
+        val clean = text.replace(Regex("\\s+"), " ").filterNot { it.isISOControl() }.trim().take(240)
+        if (clean.isEmpty()) return
+        val at = (rxTime.toLong() and 0xffffffffL).takeIf { it > 0 }?.times(1000) ?: System.currentTimeMillis()
+        val m = Message("p%08x%08x".format(node, packet), "node-%08x".format(node), ShareJson.name(name).ifEmpty { "?" }, Message.PUBLIC, clean,
+            ShareJson.time(at), mine = false, status = MessageStatus.DELIVERED, via = "mesh", read = shown && open == Message.PUBLIC)
+        if (store.add(m)) onChange()
+    }
+
     /** A message heard over the mesh. For somebody who is not on the mesh, or for everybody, it goes on to the server too. */
     fun fromMesh(m: Message) {
         if (!::store.isInitialized) return
         if (m.to == prefs.uid || m.to == Message.EVERYONE) receive(m)
         val forOthers = m.to != prefs.uid && (m.to == Message.EVERYONE || m.to !in MeshShare.nodeOf)
-        if (forOthers && serverBase != null) post(m)
+        if (forOthers && shown && serverBase != null) {
+            post(m)
+            if (m.to != Message.EVERYONE) {
+                passedOn[m.id] = m.from
+                while (passedOn.size > 200) passedOn.remove(passedOn.keys.first())
+            }
+        }
     }
 
     private fun receive(m: Message) {
@@ -183,12 +262,13 @@ object Messaging {
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Messages", NotificationManager.IMPORTANCE_DEFAULT))
         val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val title = if (m.to == Message.EVERYONE) "${m.name} to Everyone" else m.name
+        val title = if (m.to == Message.EVERYONE) "${m.name} · Group (Private)" else m.name
         manager.notify(NOTIFIED, NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_message)
             .setContentTitle(title).setContentText(m.text).setStyle(NotificationCompat.BigTextStyle().bigText(m.text))
             .setContentIntent(open).setAutoCancel(true).build())
     }
 
     private const val CHANNEL = "messages"
+    private const val MAX_FOR = 8                           // devices one request to the server may ask for
     private const val NOTIFIED = 2
 }

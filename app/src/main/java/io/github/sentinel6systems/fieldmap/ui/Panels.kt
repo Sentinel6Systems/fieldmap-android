@@ -232,7 +232,7 @@ class Panels(private val a: MainActivity) {
         add(a.row("Settings", "Coordinate format: ${a.prefs.coordFormat.title}") { show(Screen.SETTINGS) })
         // The one way to end a shared position for good, besides swiping the app away.
         add(a.button("Exit") { a.quit() }.apply { layoutParams = lp(top = a.dp(16)) })
-        if (a.sharing.on) add(a.body("Exit also stops location sharing. If you only leave the app, sharing continues.", muted = true, top = 8))
+        add(a.body("When you leave Fieldmap or swipe it away, it keeps sharing your location (while on) and takes in new messages with a notification. Exit stops it.", muted = true, top = 8))
         add(a.mono("Fieldmap ${BuildConfig.VERSION_NAME}", 12f).apply { layoutParams = lp(top = a.dp(14)) })
     }
 
@@ -644,7 +644,8 @@ class Panels(private val a: MainActivity) {
 
     /** A person's name: as sharing shows them now, or as their last message had it. */
     private fun nameOf(partner: String): String = when (partner) {
-        Message.EVERYONE -> "Everyone"
+        Message.PUBLIC -> "Group (Public)"
+        Message.EVERYONE -> "Group (Private)"
         else -> a.sharing.other(partner)?.name ?: Messaging.store.nameOf(partner) ?: "Unknown device"
     }
 
@@ -654,16 +655,26 @@ class Panels(private val a: MainActivity) {
         return (if (today) DateFormat.getTimeInstance(DateFormat.SHORT) else DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)).format(Date(ms))
     }
 
-    /** The conversations: Everyone, then the people with messages or sharing now, the latest first. */
+    /**
+     * The conversations: Group (Public) (Meshtastic's public channel, with a mesh radio), Group
+     * (Private) (everybody of this server), then the people with messages or sharing now, the
+     * latest first.
+     */
     private fun messages() {
         val store = Messaging.store
-        val people = (store.partners() + a.sharing.others().map { it.uid }).distinct().filter { it != Message.EVERYONE }
+        val people = (store.partners() + a.sharing.others().map { it.uid }).distinct().filter { it != Message.EVERYONE && it != Message.PUBLIC }
         add(a.body("Messages go through the server when it can be reached, and over the mesh radio when not. Up to ${Message.MAX} characters.", muted = true, top = 12))
-        for (partner in listOf(Message.EVERYONE) + people) {
+        val groups = listOfNotNull(Message.PUBLIC.takeIf { a.prefs.radioAddress != null }, Message.EVERYONE)
+        for (partner in groups + people) {
+            if (partner == people.firstOrNull()) add(a.label("Direct Messages"))
             val last = store.conversation(partner).lastOrNull()
             val unread = store.unread(partner)
-            val detail = (if (unread > 0) "$unread new · " else "") +
-                (last?.let { (if (it.mine) "You: " else "") + it.text } ?: if (partner == Message.EVERYONE) "All devices of this server" else "No messages yet")
+            val empty = when (partner) {
+                Message.PUBLIC -> "Everybody on the Meshtastic public channel nearby"
+                Message.EVERYONE -> "All devices of this server"
+                else -> "No messages yet"
+            }
+            val detail = (if (unread > 0) "$unread new · " else "") + (last?.let { (if (it.mine) "You: " else "${it.name}: ".takeIf { _ -> partner in groups } ?: "") + it.text } ?: empty)
             add(a.row(nameOf(partner), detail) { showChat(partner, fromPeer = false) })
         }
     }
@@ -676,6 +687,11 @@ class Panels(private val a: MainActivity) {
         chatList = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; layoutParams = lp() }.also(::add)
         chatShown = ""
         chatFill()
+        if (partner == Message.PUBLIC && a.prefs.meshReadOnly) {
+            add(a.body("The public channel is Read Only (Menu > Mesh Radio). You see its messages but do not send there, " +
+                "so other Meshtastic users do not see this radio.", muted = true, top = 16))
+            return
+        }
         add(a.label("New Message"))
         val text = a.field("Message", "", max = Message.MAX)
         add(text)
@@ -684,9 +700,10 @@ class Panels(private val a: MainActivity) {
         say()
         fun send() {
             if (Messaging.send(partner, text.text.toString()) != null) text.setText("")
+            hideKeyboard()
             say()
         }
-        // The keyboard's Enter (Send, Done, or the Enter key itself) sends, and the keyboard stays for the next one.
+        // The keyboard's Enter (Send, Done, or the Enter key itself) sends, and the keyboard goes.
         text.imeOptions = EditorInfo.IME_ACTION_SEND
         text.setOnEditorActionListener { _, action, event ->
             val enter = action == EditorInfo.IME_ACTION_SEND || action == EditorInfo.IME_ACTION_DONE ||
@@ -694,7 +711,7 @@ class Panels(private val a: MainActivity) {
             if (enter) send()
             enter
         }
-        add(a.button("Send", Kind.PRIMARY) { send(); hideKeyboard() }.apply { layoutParams = lp(top = a.dp(8)) })
+        add(a.button("Send", Kind.PRIMARY) { send() }.apply { layoutParams = lp(top = a.dp(8)) })
     }
 
     /** The messages of the open conversation, the latest 50; built again only when they changed. */
@@ -709,10 +726,12 @@ class Panels(private val a: MainActivity) {
         list.removeAllViews()
         if (messages.isEmpty()) list.addView(a.body("No messages yet.", muted = true, top = 8))
         for (m in messages) {
+            // How it went: through the server, over the mesh, or both (a message to everybody).
+            val how = when (m.via) { "mesh" -> " (Mesh)"; "server" -> " (Server)"; "mesh+server" -> " (Server and Mesh)"; else -> "" }
             val status = if (!m.mine) "" else " · " + when (m.status) {
                 MessageStatus.WAITING -> "Waiting"
-                MessageStatus.SENT -> if (m.via == "mesh") "Sent (Mesh)" else "Sent"
-                MessageStatus.DELIVERED -> if (m.via == "mesh") "Delivered (Mesh)" else "Delivered"
+                MessageStatus.SENT -> "Sent$how"
+                MessageStatus.DELIVERED -> "Delivered$how"
             }
             val via = if (!m.mine && m.via == "mesh") " · Mesh" else ""
             list.addView(a.mono((if (m.mine) "You" else m.name) + " · " + clock(m.time) + status + via, 12f).apply { setPadding(0, a.dp(10), 0, 0) })
@@ -722,6 +741,9 @@ class Panels(private val a: MainActivity) {
 
     /** How a message written now would go. */
     private fun routeText(partner: String): String {
+        if (partner == Message.PUBLIC) return if (MeshRadio.status == MeshRadio.Status.READY)
+            "Sends over the mesh radio on the public channel: every Meshtastic user nearby can read it."
+            else "Waits for the mesh radio: the public channel is reached over the mesh only."
         val ways = Messaging.ways(partner)
         return when {
             ways.isEmpty() -> "No connection: messages wait and go out when the server or the mesh radio can be reached."

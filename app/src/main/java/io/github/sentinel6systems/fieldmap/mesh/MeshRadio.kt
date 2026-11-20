@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
+import io.github.sentinel6systems.fieldmap.share.Messaging
 import io.github.sentinel6systems.fieldmap.ui.Prefs
 import okio.ByteString.Companion.toByteString
 import org.meshtastic.proto.AdminMessage
@@ -229,6 +230,11 @@ object MeshRadio {
                     if (status == Status.READY && d != null && d.portnum == PortNum.PRIVATE_APP && p.channel == RadioSetup.ourIndex(prefs.meshReadOnly)) {
                         MeshShare.received(p.from, d.payload.toByteArray())
                     }
+                    // A text on the public channel, to everybody: Group (Public).
+                    if (status == Status.READY && d != null && d.portnum == PortNum.TEXT_MESSAGE_APP && p.to == BROADCAST &&
+                        p.channel == RadioSetup.publicIndex(prefs.meshReadOnly)) {
+                        Messaging.publicHeard(p.from, state.nodes[p.from]?.name ?: RadioState.nodeName(p.from), p.id, d.payload.utf8(), p.rx_time ?: 0)
+                    }
                     // Meshtastic's answer to a packet that wanted one: it arrived, or it could not.
                     if (d != null && d.portnum == PortNum.ROUTING_APP && d.request_id != 0) {
                         val routing = try { Routing.ADAPTER.decode(d.payload) } catch (e: Exception) { null }
@@ -307,6 +313,21 @@ object MeshRadio {
             decoded = Data(portnum = PortNum.PRIVATE_APP, payload = payload.toByteString()),
         )))
         return id
+    }
+
+    /**
+     * A text to everybody on the public channel (Meshtastic's own text messages). Only when the
+     * public channel is not read only: a text there shows this radio to everybody. Returns false
+     * when it cannot go now.
+     */
+    fun sendPublic(text: String): Boolean {
+        val link = link ?: return false
+        if (status != Status.READY || prefs.meshReadOnly) return false
+        link.send(ToRadio(packet = MeshPacket(
+            to = BROADCAST, channel = RadioSetup.publicIndex(false), id = Random.nextInt(1, Int.MAX_VALUE),
+            decoded = Data(portnum = PortNum.TEXT_MESSAGE_APP, payload = text.toByteArray().toByteString()),
+        )))
+        return true
     }
 
     /** Try connecting now (after a failure, or when Bluetooth came back on). */

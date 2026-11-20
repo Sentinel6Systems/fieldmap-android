@@ -23,10 +23,13 @@ data class Message(
     val mine: Boolean, val status: MessageStatus = MessageStatus.WAITING, val via: String = "", val read: Boolean = false,
 ) {
     /** The conversation it belongs to: the other person's uid, or "*" for everybody. */
-    val partner get() = if (to == EVERYONE) EVERYONE else if (mine) to else from
+    val partner get() = if (to == EVERYONE || to == PUBLIC) to else if (mine) to else from
 
     companion object {
+        /** Everybody of this server: Group (Private), on the server and the server's mesh channel. */
         const val EVERYONE = "*"
+        /** Everybody on Meshtastic's public channel: Group (Public), over the mesh radio only. */
+        const val PUBLIC = "#public"
         /** As many characters as fit one mesh radio packet with who sent it. */
         const val MAX = 140
 
@@ -142,6 +145,17 @@ object MessageJson {
  */
 object MessageRoute {
     enum class Way { SERVER, MESH_DIRECT, MESH_BROADCAST }
+
+    /**
+     * Which of the devices that have both the server and the mesh passes this message on first.
+     * Every device works it out the same way, from the message's id and their uids, and a
+     * different one is first for different messages; the others wait (RELAY_BACKUP_MS) and pass it
+     * on only when it has not gone out by then.
+     */
+    fun relay(id: String, relays: Collection<String>): String? =
+        relays.maxByOrNull { uid -> java.util.zip.CRC32().apply { update("$id/$uid".toByteArray()) }.value }
+
+    const val RELAY_BACKUP_MS = 60_000L
 
     fun choose(to: String, serverUp: Boolean, onServer: Boolean, meshReady: Boolean, meshNode: Int?): List<Way> = when {
         to == Message.EVERYONE -> listOfNotNull(Way.SERVER.takeIf { serverUp }, Way.MESH_BROADCAST.takeIf { meshReady })

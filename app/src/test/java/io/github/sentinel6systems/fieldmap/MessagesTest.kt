@@ -35,6 +35,25 @@ class MessagesTest {
         assertEquals("everybody: every way there is", listOf(Way.SERVER, Way.MESH_BROADCAST), MessageRoute.choose(Message.EVERYONE, true, false, true, null))
     }
 
+    @Test fun oneRelayGoesFirstTheSameForEverybodyAndNotAlwaysTheSameOne() {
+        val relays = listOf("test-phone-0001", "test-phone-0002", "test-phone-0003")
+        val first = MessageRoute.relay("test-msg-0001", relays)
+        assertEquals("every device works out the same one, whatever order it knows them in", first, MessageRoute.relay("test-msg-0001", relays.reversed()))
+        val chosen = (1..60).map { MessageRoute.relay("test-msg-%04d".format(it), relays) }.toSet()
+        assertEquals("the work is shared", relays.toSet(), chosen)
+        assertNull(MessageRoute.relay("test-msg-0001", emptyList()))
+    }
+
+    @Test fun aDeliveryNoteFitsOnePacket() {
+        val ids = (1..40).map { "m" + "a".repeat(12) + it }
+        val bytes = MeshCodec.delivered(me, ids)
+        assertTrue(bytes.size <= MeshCodec.MAX_PAYLOAD)
+        val back = MeshCodec.decode(bytes)!!.delivered!!
+        assertEquals(me, MeshCodec.uidText(back.to))
+        assertEquals(ids.take(back.ids.size), back.ids)
+        assertTrue(back.ids.size >= 10)
+    }
+
     @Test fun messagesAreKeptOnceInConversationsAndCountedUntilRead() {
         val file = File.createTempFile("messages", ".json").apply { delete() }
         val store = MessageStore(file)
@@ -66,6 +85,13 @@ class MessagesTest {
         assertNull(MessageJson.fromServer("<html>"))
         val sent = JSONObject(MessageJson.toServer(msg()))
         assertEquals(setOf("id", "from", "name", "to", "text", "time"), sent.keys().asSequence().toSet())
+    }
+
+    @Test fun theTwoGroupsAreConversationsOfTheirOwn() {
+        assertEquals(Message.PUBLIC, msg(to = Message.PUBLIC).partner)
+        assertEquals(Message.PUBLIC, msg(from = "node-1a2b3c4d", to = Message.PUBLIC, mine = false).partner)
+        assertEquals(Message.EVERYONE, msg(from = other, to = Message.EVERYONE, mine = false).partner)
+        assertEquals(other, msg(from = other, to = me, mine = false).partner)
     }
 
     @Test fun aTypedMessageIsOneLineAndNoLongerThanFits() {

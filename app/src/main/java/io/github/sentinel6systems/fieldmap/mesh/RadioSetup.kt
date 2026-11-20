@@ -197,6 +197,9 @@ object RadioSetup {
     /** The index of the server's channel on the radio. */
     fun ourIndex(readOnly: Boolean) = if (readOnly) 0 else 1
 
+    /** The index of the public channel on the radio. */
+    fun publicIndex(readOnly: Boolean) = 1 - ourIndex(readOnly)
+
     /** The public channel's key: Meshtastic's "default key" number 1. */
     private val PUBLIC_KEY = byteArrayOf(1).toByteString()
 
