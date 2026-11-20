@@ -7,6 +7,13 @@ import org.maplibre.android.style.layers.PropertyFactory.lineJoin
 import org.maplibre.android.style.layers.PropertyFactory.lineCap
 import kotlin.math.roundToInt
 import io.github.sentinel6systems.fieldmap.geo.Arrows
+import io.github.sentinel6systems.fieldmap.geo.Routes
+import org.maplibre.android.style.layers.PropertyFactory.iconColor
+import org.maplibre.android.style.layers.PropertyFactory.iconHaloColor
+import org.maplibre.android.style.layers.PropertyFactory.iconHaloWidth
+import org.maplibre.android.style.layers.PropertyFactory.iconRotationAlignment
+import org.maplibre.android.style.layers.PropertyFactory.symbolPlacement
+import org.maplibre.android.style.layers.PropertyFactory.symbolSpacing
 import org.maplibre.geojson.LineString
 import android.Manifest
 import android.annotation.SuppressLint
@@ -153,7 +160,10 @@ class MainActivity : AppCompatActivity() {
     internal lateinit var areas: Areas
     internal lateinit var sharing: Sharing
         private set
-    private lateinit var panels: Panels
+    internal lateinit var panels: Panels
+        private set
+    internal lateinit var routes: RouteEditor
+        private set
     internal val scope = MainScope()
     internal var map: MapLibreMap? = null
     private var style: Style? = null
@@ -214,6 +224,7 @@ class MainActivity : AppCompatActivity() {
         areas = Areas(this)
         sharing = Sharing(this)
         panels = Panels(this)
+        routes = RouteEditor(this)
         MeshRadio.init(this)
         MeshRadio.onChange = { panels.refresh(); nodesChanged() }
         Messaging.init(this)
@@ -366,6 +377,26 @@ class MainActivity : AppCompatActivity() {
             circleStrokeWidth(3f)).withFilter(arrowEndsFilter()))
         // While an arrow is being drawn: a dashed line from where the finger held to where it is.
         add(LineLayer("fm-drag", DRAG).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineDasharray(arrayOf(2f, 1.5f))))
+        // Routes: a line in the colour with a white halo, as the arrows, small chevrons along it the
+        // way it goes, a dot where it starts; its points (numbered) while it is chosen or drawn, and
+        // while it is drawn the dots in the middle of its legs.
+        st.addImage(CHEVRON, chevronSymbol(), true)
+        st.addSource(GeoJsonSource(ROUTES, routesOnMap()))
+        fun part(name: String) = Expression.eq(Expression.get("part"), Expression.literal(name))
+        add(LineLayer("fm-routes-halo", ROUTES).withProperties(lineColor(Color.WHITE), lineWidth(6f), lineOpacity(0.6f), lineCap(Property.LINE_CAP_ROUND),
+            lineJoin(Property.LINE_JOIN_ROUND)).withFilter(part("line")))
+        add(LineLayer(ROUTE_LINES, ROUTES).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineCap(Property.LINE_CAP_ROUND),
+            lineJoin(Property.LINE_JOIN_ROUND)).withFilter(part("line")))
+        add(SymbolLayer("fm-routes-way", ROUTES).withProperties(symbolPlacement(Property.SYMBOL_PLACEMENT_LINE), symbolSpacing(70f), iconImage(CHEVRON),
+            iconColor(Expression.get("color")), iconHaloColor(Color.WHITE), iconHaloWidth(1.5f), iconAllowOverlap(true), iconIgnorePlacement(true),
+            iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP)).withFilter(part("way")))
+        add(CircleLayer("fm-routes-start", ROUTES).withProperties(circleRadius(5f), circleColor(Color.WHITE), circleStrokeColor(Expression.get("color")),
+            circleStrokeWidth(3f)).withFilter(part("start")))
+        add(CircleLayer("fm-routes-middle", ROUTES).withProperties(circleRadius(6f), circleColor(Color.WHITE), circleOpacity(0.9f),
+            circleStrokeColor(Expression.get("color")), circleStrokeWidth(2f)).withFilter(part("middle")))
+        add(CircleLayer("fm-routes-point", ROUTES).withProperties(circleRadius(11f), circleColor(Color.WHITE),
+            circleStrokeColor(Expression.switchCase(Expression.toBool(Expression.get("chosen")), Expression.literal(hex(R.color.sig)), Expression.get("color"))),
+            circleStrokeWidth(Expression.switchCase(Expression.toBool(Expression.get("chosen")), Expression.literal(5f), Expression.literal(3f)))).withFilter(part("point")))
         // The dots of the print tool: the colour, a white edge; a thin dark line keeps a white
         // dot visible on a white map.
         add(CircleLayer("fm-markers-ring", MARKERS).withProperties(circleRadius(12.5f), circleColor("#111111"), circleOpacity(0.55f)))
@@ -384,6 +415,28 @@ class MainActivity : AppCompatActivity() {
                 textRotate(Expression.get("rotate")), textMaxWidth(60f), textColor("#111111"), textHaloColor(Color.WHITE), textHaloWidth(1.6f),
             ).withFilter(Expression.eq(Expression.get("part"), Expression.literal("label"))), "fm-markers-ring",
         )
+        if (font != null) {
+            // A route's legs' lengths along them, its name beside its start, its points' numbers.
+            st.addLayerBelow(
+                SymbolLayer("fm-routes-leg", ROUTES).withProperties(
+                    textField(Expression.get("label")), textFont(font), textSize(12f), textOffset(arrayOf(0f, -1f)),
+                    textAllowOverlap(true), textIgnorePlacement(true), textRotationAlignment(Property.TEXT_ROTATION_ALIGNMENT_MAP),
+                    textRotate(Expression.get("rotate")), textColor("#111111"), textHaloColor(Color.WHITE), textHaloWidth(1.6f),
+                ).withFilter(Expression.eq(Expression.get("part"), Expression.literal("leg"))), "fm-markers-ring",
+            )
+            st.addLayerBelow(
+                SymbolLayer("fm-routes-name", ROUTES).withProperties(
+                    textField(Expression.get("label")), textFont(font), textSize(15f), textOffset(arrayOf(0.9f, 0f)),
+                    textAnchor(Property.TEXT_ANCHOR_LEFT), textAllowOverlap(true), textIgnorePlacement(true),
+                    textColor("#111111"), textHaloColor(Color.WHITE), textHaloWidth(1.8f),
+                ).withFilter(Expression.eq(Expression.get("part"), Expression.literal("start"))), "fm-markers-ring",
+            )
+            add(
+                SymbolLayer("fm-routes-number", ROUTES).withProperties(
+                    textField(Expression.get("n")), textFont(font), textSize(12f), textAllowOverlap(true), textIgnorePlacement(true), textColor("#111111"),
+                ).withFilter(Expression.eq(Expression.get("part"), Expression.literal("point"))),
+            )
+        }
         if (font != null) add(
             SymbolLayer("fm-markers-name", MARKERS).withProperties(
                 textField(Expression.get("label")), textFont(font), textSize(15f), textOffset(arrayOf(1.1f, 0f)),
@@ -462,6 +515,18 @@ class MainActivity : AppCompatActivity() {
         return bitmap
     }
 
+    /** A chevron pointing right (the way along a line), white: the map colours it per route. */
+    private fun chevronSymbol(): Bitmap {
+        val size = dp(14)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = dp(3).toFloat(); strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        }
+        val m = dp(3).toFloat()
+        Canvas(bitmap).drawPath(Path().apply { moveTo(m, m); lineTo(size - m, size / 2f); lineTo(m, size - m) }, paint)
+        return bitmap
+    }
+
     /**
      * The radios heard lately that say where they are; with their rough area when that is all
      * they give. Not the radios of Fieldmap devices: those devices are on the map themselves.
@@ -521,12 +586,16 @@ class MainActivity : AppCompatActivity() {
         if (meters < 1000) "${meters.toInt()} m" else String.format(Locale.US, "%.1f km", meters / 1000)
     }
 
+    /** A route's speed: "25 mph", with km/h beside it where distances are metric: "25 mph (40 km/h)". */
+    internal fun speedText(mph: Int): String =
+        if (imperial) "$mph mph" else String.format(Locale.US, "%d mph (%.0f km/h)", mph, mph * 1.609344)
+
     /** An arrow's length and bearing, for its panel and the Markers list. */
     internal fun arrowDetail(m: Marker): String = arrowText(m)
 
     /** The arrows: line, head, label at the middle, and the two ends (shown for the chosen one). */
     private fun arrowsOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
-        markers.markers.filter { it.isArrow }.flatMap { m ->
+        markers.markers.filter { it.isArrow && !it.isRoute }.flatMap { m ->
             val endLat = m.endLat!!
             val endLon = m.endLon!!
             val (h1, h2) = Arrows.head(m.lat, m.lon, endLat, endLon)
@@ -549,7 +618,7 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun markersOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
-        markers.markers.filter { !it.isArrow }.map { m ->
+        markers.markers.filter { !it.isArrow && !it.isRoute }.map { m ->
             Feature.fromGeometry(Point.fromLngLat(m.lon, m.lat)).apply {
                 addStringProperty("id", m.id)
                 addStringProperty("label", m.label)
@@ -557,6 +626,53 @@ class MainActivity : AppCompatActivity() {
             }
         },
     )
+
+    /** A route's length and time at its speed: "4.2 km · 50 min". */
+    internal fun routeDetail(points: List<Pair<Double, Double>>, mph: Int): String =
+        Routes.length(points).let { distanceText(it) + " · " + Routes.timeText(Routes.minutes(it, mph)) }
+
+    /**
+     * The routes: line, chevrons, start (with the name), legs' lengths; the points of the chosen
+     * one; and the one being drawn, with the middles of its legs. Each part as the settings say.
+     */
+    private fun routesOnMap(): FeatureCollection {
+        val drawn = routes.points
+        val all = markers.markers.filter { it.isRoute && !(drawn != null && it.id == routes.editing) }
+            .map { Triple(it.id, it.color, it.label) to it.route!!.points }
+            .plus(if (drawn != null) listOf(Triple(DRAWN, routes.editing?.let(markers::get)?.color ?: prefs.color, "") to drawn.toList()) else emptyList())
+        return FeatureCollection.fromFeatures(all.flatMap { (about, points) ->
+            val (id, color, label) = about
+            fun part(f: Feature, name: String) = f.apply { addStringProperty("id", id); addStringProperty("color", color); addStringProperty("part", name) }
+            fun at(p: Pair<Double, Double>) = Point.fromLngLat(p.second, p.first)
+            val out = ArrayList<Feature>()
+            if (points.size >= 2) {
+                val line = LineString.fromLngLats(points.map(::at))
+                out += part(Feature.fromGeometry(line), "line")
+                if (prefs.routeDirection) out += part(Feature.fromGeometry(line), "way")
+                if (prefs.routeLegLabels) for (leg in Routes.legs(points)) {
+                    val middle = Routes.middle(points[leg.from], points[leg.from + 1])
+                    out += part(Feature.fromGeometry(at(middle)), "leg").apply {
+                        addStringProperty("label", distanceText(leg.meters))
+                        addNumberProperty("rotate", Arrows.labelAngle(leg.bearing))
+                    }
+                }
+            }
+            if (points.isNotEmpty() && id != DRAWN) out += part(Feature.fromGeometry(at(points[0])), "start").apply { addStringProperty("label", label) }
+            if (id == DRAWN || id == selected) points.forEachIndexed { i, p ->
+                out += part(Feature.fromGeometry(at(p)), "point").apply {
+                    addStringProperty("n", "${i + 1}")
+                    addBooleanProperty("chosen", id == DRAWN && i == routes.chosen)
+                }
+            }
+            if (id == DRAWN) for (i in 0 until points.size - 1) out += part(Feature.fromGeometry(at(Routes.middle(points[i], points[i + 1]))), "middle")
+            out
+        })
+    }
+
+    /** Draws the routes again: one changed, is being drawn, or the settings of what they show changed. */
+    internal fun routesChanged() {
+        style?.getSourceAs<GeoJsonSource>(ROUTES)?.setGeoJson(routesOnMap())
+    }
 
     private fun areasOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
         areas.list.mapNotNull { it.bounds }.map { r ->
@@ -1000,6 +1116,8 @@ class MainActivity : AppCompatActivity() {
 
     /** Watches a finger on the map. Returns true while it draws (the map then does not see it). */
     private fun watchHold(e: MotionEvent): Boolean {
+        // While a route is drawn, a finger on one of its points moves it; the hold does nothing.
+        if (panels.screen == Screen.ROUTE) return routes.touch(e)
         val start = holdSpot
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> if (map != null && panels.screen != Screen.SAVE && panels.screen != Screen.MOVE) {
@@ -1061,6 +1179,8 @@ class MainActivity : AppCompatActivity() {
         val m = map ?: return false
         if (panels.screen == Screen.SAVE) return false
         val p = m.projection.toScreenLocation(at)
+        // While a route is drawn, a tap is its next point.
+        if (panels.screen == Screen.ROUTE) { routes.tap(spotAt(p) ?: at); return true }
         // After Move in a marker's panel, the next tap is the marker's new position.
         if (panels.screen == Screen.MOVE) {
             val spot = spotAt(p) ?: return true
@@ -1076,6 +1196,7 @@ class MainActivity : AppCompatActivity() {
         val around = RectF(p.x - reach, p.y - reach, p.x + reach, p.y + reach)
         m.queryRenderedFeatures(around, MARKER_DOTS).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
         m.queryRenderedFeatures(around, ARROW_LINES).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
+        m.queryRenderedFeatures(around, ROUTE_LINES).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
         m.queryRenderedFeatures(around, PEER_SYMBOLS).firstOrNull()?.getStringProperty("id")?.let { openPeer(it, fromList = false); return true }
         m.queryRenderedFeatures(around, NODE_SYMBOLS).firstOrNull()?.getNumberProperty("num")?.let { openNode(it.toInt(), fromList = false); return true }
         return false
@@ -1085,9 +1206,10 @@ class MainActivity : AppCompatActivity() {
         val marker = markers.get(id) ?: return
         select(id)
         panels.showMarker(fromList)
-        // Bring it into view (an arrow by its middle), unless the map is following the phone.
-        val lat = if (marker.isArrow) (marker.lat + marker.endLat!!) / 2 else marker.lat
-        val lon = if (marker.isArrow) (marker.lon + marker.endLon!!) / 2 else marker.lon
+        // Bring it into view (an arrow by its middle, a route by the middle of its box), unless the map is following the phone.
+        val points = marker.route?.points
+        val lat = if (points != null) (points.minOf { it.first } + points.maxOf { it.first }) / 2 else if (marker.isArrow) (marker.lat + marker.endLat!!) / 2 else marker.lat
+        val lon = if (points != null) (points.minOf { it.second } + points.maxOf { it.second }) / 2 else if (marker.isArrow) (marker.lon + marker.endLon!!) / 2 else marker.lon
         if (follow == Follow.FREE) b.root.post { map?.animateCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lon)), 400) }
     }
 
@@ -1095,6 +1217,7 @@ class MainActivity : AppCompatActivity() {
         selected = id
         style?.getLayerAs<CircleLayer>(MARKER_SELECTED)?.setFilter(selectedFilter())
         style?.getLayerAs<CircleLayer>(ARROW_ENDS)?.setFilter(arrowEndsFilter())
+        routesChanged()
     }
 
     internal fun updateMarker(marker: Marker) {
@@ -1116,6 +1239,7 @@ class MainActivity : AppCompatActivity() {
      */
     internal fun shareMarker(id: String, on: Boolean) {
         val marker = markers.get(id) ?: return
+        if (on && marker.isRoute) return            // routes are not shared yet
         val now = if (on) {
             // The box takes only plain ids; a marker from a file may have another kind.
             sharing.edited(if (ShareJson.ID.matches(id)) marker else marker.copy(id = markers.newId()))
@@ -1236,6 +1360,7 @@ class MainActivity : AppCompatActivity() {
     internal fun markersChanged() {
         style?.getSourceAs<GeoJsonSource>(MARKERS)?.setGeoJson(markersOnMap())
         style?.getSourceAs<GeoJsonSource>(ARROWS)?.setGeoJson(arrowsOnMap())
+        routesChanged()
     }
 
     /** Distance and true bearing from the phone to a place, in words; null without a position. `brief`: for one line of a list. */
@@ -1270,7 +1395,7 @@ class MainActivity : AppCompatActivity() {
             toast(
                 "Imported $added marker${if (added == 1) "" else "s"}." +
                     (if (loaded.markers.size > added) " ${loaded.markers.size - added} already on this device." else "") +
-                    (if (loaded.skipped > 0) " ${loaded.skipped} arrow${if (loaded.skipped == 1) "" else "s"} or shape${if (loaded.skipped == 1) "" else "s"} skipped; the app shows markers only." else ""),
+                    (if (loaded.skipped > 0) " ${loaded.skipped} shape${if (loaded.skipped == 1) "" else "s"} skipped; the app shows markers, arrows and routes only." else ""),
             )
         } catch (e: IllegalArgumentException) {
             toast(e.message ?: "Couldn't read the file.")
@@ -1531,6 +1656,11 @@ class MainActivity : AppCompatActivity() {
         const val ARROW_LINES = "fm-arrows-line"
         const val ARROW_ENDS = "fm-arrows-end"
         const val DRAG = "fm-drag"
+        const val ROUTES = "fm-routes"
+        const val ROUTE_LINES = "fm-routes-line"
+        const val CHEVRON = "fm-chevron"
+        /** The id on the map of the route being drawn. */
+        const val DRAWN = "fm-drawn"
         const val MARKER_DOTS = "fm-markers-dot"
         const val MARKER_SELECTED = "fm-markers-selected"
         const val PEERS = "fm-peers"

@@ -148,6 +148,20 @@ class Prefs(context: Context) {
         get() = p.getBoolean("radio.nodesOnMap", true)
         set(v) = p.edit { putBoolean("radio.nodesOnMap", v) }
 
+    /** What routes show (Menu > Settings > Routes); each on until switched off. */
+    var routeDirection: Boolean
+        get() = p.getBoolean("route.direction", true)
+        set(v) = p.edit { putBoolean("route.direction", v) }
+    var routeTotals: Boolean
+        get() = p.getBoolean("route.totals", true)
+        set(v) = p.edit { putBoolean("route.totals", v) }
+    var routeLegs: Boolean
+        get() = p.getBoolean("route.legs", true)
+        set(v) = p.edit { putBoolean("route.legs", v) }
+    var routeLegLabels: Boolean
+        get() = p.getBoolean("route.legLabels", true)
+        set(v) = p.edit { putBoolean("route.legLabels", v) }
+
     /** The last seq of the server's messages this device has, and the server (its /mapshare/ base) it is from. */
     var messageSeq: Long
         get() = p.getLong("messages.seq", 0)

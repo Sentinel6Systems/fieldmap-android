@@ -37,6 +37,14 @@ class MarkerStore(private val file: File) {
         return m
     }
 
+    /** A new route through these points (lat to lon, at least two). */
+    fun addRoute(points: List<Pair<Double, Double>>, color: String): Marker {
+        val m = Marker(newId(), 0.0, 0.0, Drawings.nextName(markers, route = true), color).withPoints(points)
+        markers = markers + m
+        save()
+        return m
+    }
+
     fun update(m: Marker) {
         markers = markers.map { if (it.id == m.id) m else it }
         save()
@@ -56,11 +64,11 @@ class MarkerStore(private val file: File) {
 
     /** Adds the markers of a loaded file, leaving out the ones already here. Returns how many were added. */
     fun addAll(loaded: List<Marker>): Int {
-        val have = markers.map { listOf(it.lat, it.lon, it.label, it.endLat, it.endLon) }.toMutableSet()
+        val have = markers.map { listOf(it.lat, it.lon, it.label, it.endLat, it.endLon, it.route) }.toMutableSet()
         val ids = markers.map { it.id }.toMutableSet()
         val fresh = ArrayList<Marker>()
         for (m in loaded) {
-            if (!have.add(listOf(m.lat, m.lon, m.label, m.endLat, m.endLon))) continue
+            if (!have.add(listOf(m.lat, m.lon, m.label, m.endLat, m.endLon, m.route))) continue
             // What comes from a file is this phone's own until the person shares it.
             val own = m.copy(shared = false, updated = "", by = "")
             fresh += if (ids.add(own.id)) own else own.copy(id = newId().also { ids.add(it) })

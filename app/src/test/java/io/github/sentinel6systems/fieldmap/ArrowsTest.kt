@@ -51,8 +51,10 @@ class ArrowsTest {
             "properties":{"name":"A3","stroke":"#2a9d3f","fieldmap":{"kind":"arrow","label":"A3","color":"#2a9d3f"}}},
             {"type":"Feature","geometry":{"type":"LineString","coordinates":[[0,0],[1,1],[2,2]]},"properties":{}}]}"""
         val loaded = Drawings.fromGeoJson(printTool, "#d7263d") { "new-id-0002" }
-        assertEquals(listOf(Marker("new-id-0002", 48.0, -122.0, "A3", "#2a9d3f", endLat = 48.1, endLon = -122.1)), loaded.markers)
-        assertEquals("a line of three points is not an arrow", 1, loaded.skipped)
+        // A longer line is a route (RoutesTest).
+        assertEquals(Marker("new-id-0002", 48.0, -122.0, "A3", "#2a9d3f", endLat = 48.1, endLon = -122.1), loaded.markers[0])
+        assertEquals(true, loaded.markers[1].isRoute)
+        assertEquals("a line of three points is not an arrow", 0, loaded.skipped)
     }
 
     @Test fun anAppThatDoesNotKnowArrowsCannotTurnOneIntoAPoint() {

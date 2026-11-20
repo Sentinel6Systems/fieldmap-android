@@ -23,6 +23,7 @@ import io.github.sentinel6systems.fieldmap.data.MessageStatus
 import io.github.sentinel6systems.fieldmap.data.Palette
 import io.github.sentinel6systems.fieldmap.geo.CoordFormat
 import io.github.sentinel6systems.fieldmap.geo.Coords
+import io.github.sentinel6systems.fieldmap.geo.Routes
 import io.github.sentinel6systems.fieldmap.mesh.MeshNode
 import io.github.sentinel6systems.fieldmap.mesh.MeshRadio
 import io.github.sentinel6systems.fieldmap.mesh.MeshShare
@@ -61,6 +62,7 @@ enum class Screen(val title: String, val parent: Screen?) {
     MARKERS("Markers", MENU),
     MARKER("Marker", null),
     MOVE("Move Marker", MARKER),
+    ROUTE("New Route", MARKERS),
     SHARING("Location Sharing", MENU),
     MESH("Mesh Radio", MENU),
     MESSAGES("Messages", MENU),
@@ -116,6 +118,8 @@ class Panels(private val a: MainActivity) {
         screen == Screen.PEER && peerFromList -> Screen.SHARING
         screen == Screen.NODE && nodeFromList -> Screen.MESH
         screen == Screen.CHAT -> if (chatFromPeer) Screen.PEER else Screen.MESSAGES
+        // A route being edited goes back to its panel; a new one to the list it was started from.
+        screen == Screen.ROUTE && a.routes.editing != null -> Screen.MARKER
         else -> screen.parent ?: Screen.NONE
     })
 
@@ -145,11 +149,13 @@ class Panels(private val a: MainActivity) {
     fun rebuild(which: Screen) { if (screen == which) { hideKeyboard(); build() } }
 
     fun show(next: Screen) {
+        // A route being drawn is kept with Done only; any other way out asks before it is lost.
+        if (screen == Screen.ROUTE && next != Screen.ROUTE && a.routes.active) { a.routes.leave(next); return }
         hideKeyboard()
         if (screen == Screen.SAVE) estimateJob?.cancel()
         // Move belongs to the marker's panel: the marker stays chosen between the two.
-        if (screen == Screen.MARKER && next != Screen.MARKER && next != Screen.MOVE) a.select(null)
-        if (screen == Screen.MOVE && next != Screen.MARKER) a.select(null)
+        if (screen == Screen.MARKER && next != Screen.MARKER && next != Screen.MOVE && next != Screen.ROUTE) a.select(null)
+        if ((screen == Screen.MOVE || screen == Screen.ROUTE) && next != Screen.MARKER) a.select(null)
         // A conversation opened from a person's panel leads back to it: the person stays chosen between the two.
         if (screen == Screen.PEER && next != Screen.PEER && next != Screen.CHAT) a.selectPeer(null)
         if (screen == Screen.CHAT && next != Screen.CHAT) {
@@ -162,9 +168,14 @@ class Panels(private val a: MainActivity) {
         // With a panel open only the zoom buttons stay on the map.
         for (v in listOf(a.b.position, a.b.menu, a.b.foot)) v.visibility = if (open) View.GONE else View.VISIBLE
         a.b.frame.visibility = if (next == Screen.SAVE) View.VISIBLE else View.GONE
-        // A marker's panel is an arrow's too.
-        a.b.panelTitle.text = if ((next == Screen.MARKER || next == Screen.MOVE) && a.selected?.let { a.markers.get(it) }?.isArrow == true)
-            (if (next == Screen.MARKER) "Arrow" else "Move Arrow") else next.title
+        // A marker's panel is an arrow's and a route's too.
+        val chosen = a.selected?.let { a.markers.get(it) }
+        a.b.panelTitle.text = when {
+            next == Screen.ROUTE -> if (a.routes.editing != null) "Edit Route" else next.title
+            next == Screen.MARKER && chosen?.isRoute == true -> "Route"
+            (next == Screen.MARKER || next == Screen.MOVE) && chosen?.isArrow == true -> if (next == Screen.MARKER) "Arrow" else "Move Arrow"
+            else -> next.title
+        }
         val hasBack = next.parent != null || (next == Screen.MARKER && markerFromList) || (next == Screen.PEER && peerFromList) ||
             (next == Screen.NODE && nodeFromList) || next == Screen.CHAT
         a.b.panelBack.visibility = if (hasBack) View.VISIBLE else View.GONE
@@ -203,6 +214,7 @@ class Panels(private val a: MainActivity) {
             Screen.SAVE -> save()
             Screen.MARKERS -> markers()
             Screen.MARKER -> marker()
+            Screen.ROUTE -> route()
             Screen.MOVE -> add(a.body(when {
                 a.selected?.let { a.markers.get(it) }?.isArrow != true -> "Tap the marker's new location on the map. You can move and zoom the map first."
                 a.movingEnd -> "Tap the arrow's new head (end) on the map. You can move and zoom the map first."
@@ -275,6 +287,16 @@ class Panels(private val a: MainActivity) {
             })
         }
         add(a.body("All coordinates in the app use this format, including the top bar, markers, and shared locations.", muted = true, top = 12))
+
+        // What routes show: each part can be turned off when the map or the panel gets too full.
+        add(a.label("Routes"))
+        fun option(title: String, detail: String, on: Boolean, set: (Boolean) -> Unit) =
+            add(a.check(title, detail, on) { set(it); a.routesChanged(); build() })
+        val p = a.prefs
+        option("Direction Indicators", "Chevrons along the line show the direction of travel.", p.routeDirection) { p.routeDirection = it }
+        option("Leg Distances on Map", "Each leg's distance as a label on the line.", p.routeLegLabels) { p.routeLegLabels = it }
+        option("Total Distance and Time", "In the route's panel.", p.routeTotals) { p.routeTotals = it }
+        option("Leg Details", "Each leg's distance and bearing, in the route's panel.", p.routeLegs) { p.routeLegs = it }
     }
 
     /* ---------- saved areas ---------- */
@@ -403,10 +425,15 @@ class Panels(private val a: MainActivity) {
 
     private fun markers() {
         val list = a.markers.markers
+        add(a.button("New Route", Kind.PRIMARY) { a.routes.start(null) }.apply { layoutParams = lp(top = a.dp(12)) })
         if (list.isEmpty()) add(a.body("No markers. To add one, touch and hold the map for 2 seconds, then lift your finger. To draw an arrow, " +
             "keep holding and drag to where it points. To add a marker at your location, touch and hold the blue dot.", muted = true, top = 12))
         for (m in list.asReversed()) {
-            val where = if (m.isArrow) "Arrow · " + a.arrowDetail(m) else a.coords(m.lat, m.lon, brief = true)
+            val where = when {
+                m.route != null -> "Route · " + a.distanceText(Routes.length(m.route.points)) + " · ${m.route.points.size} points"
+                m.isArrow -> "Arrow · " + a.arrowDetail(m)
+                else -> a.coords(m.lat, m.lon, brief = true)
+            }
             add(a.row(m.label.ifEmpty { "Unnamed" }, where + if (m.shared) " · Shared" else "", dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
         }
         add(a.label("Import / Export"))
@@ -441,7 +468,24 @@ class Panels(private val a: MainActivity) {
         })
         mark(m.color)
 
-        if (m.isArrow) {
+        if (m.route != null) {
+            // A route: how long and how long it takes at its speed, each leg, then where it starts and ends (as the settings say).
+            val points = m.route.points
+            if (a.prefs.routeTotals) {
+                add(a.label("Distance and Time"))
+                add(a.mono(a.routeDetail(points, m.route.mph), 18f, muted = false))
+                add(a.row("Speed", a.speedText(m.route.mph)) { chooseSpeed(m.id) })
+            }
+            if (a.prefs.routeLegs) {
+                add(a.label("Legs"))
+                for (leg in Routes.legs(points)) add(a.mono("${leg.from + 1} → ${leg.from + 2}   " + a.distanceText(leg.meters) + " · " + Routes.bearingText(leg.bearing), 15f, muted = false)
+                    .apply { setPadding(0, a.dp(3), 0, a.dp(3)) })
+            }
+            add(a.label("Start"))
+            add(a.mono(a.coords(points.first().first, points.first().second), 16f, muted = false))
+            add(a.label("End"))
+            add(a.mono(a.coords(points.last().first, points.last().second), 16f, muted = false))
+        } else if (m.isArrow) {
             // An arrow: how long and which way, then where it starts and where it points.
             add(a.label("Length and Bearing"))
             add(a.mono(a.arrowDetail(m), 18f, muted = false))
@@ -461,12 +505,15 @@ class Panels(private val a: MainActivity) {
         }
 
         // One choice, off until the person makes it. A server known to have no sharing does not offer it.
-        if (m.shared || a.sharing.box != Sharing.Box.NONE) {
+        // Routes are not shared yet.
+        if (!m.isRoute && (m.shared || a.sharing.box != Sharing.Box.NONE)) {
             markerShare = a.check("Share with All Devices", shareDetail(m), m.shared) { on -> hideKeyboard(); a.shareMarker(m.id, on); build() }
                 .apply { layoutParams = lp(top = a.dp(10)) }.also(::add)
         }
         val delete = a.button("Delete", Kind.DANGER) { if (a.markers.get(m.id)?.shared == true) confirmDeleteShared(m.id) else { a.deleteMarker(m.id); back() } }
-        if (m.isArrow) {
+        if (m.isRoute) {
+            add(a.buttons(delete, a.button("Edit Route") { a.routes.start(m.id) }, top = 16))
+        } else if (m.isArrow) {
             add(a.buttons(
                 a.button("Move Start") { a.movingEnd = false; show(Screen.MOVE) },
                 a.button("Move End") { a.movingEnd = true; show(Screen.MOVE) },
@@ -476,6 +523,39 @@ class Panels(private val a: MainActivity) {
         } else {
             add(a.buttons(delete, a.button("Move") { show(Screen.MOVE) }, top = 16))
         }
+    }
+
+    /** The speed a route's time is worked out at, from the list of Routes.SPEEDS. */
+    private fun chooseSpeed(id: String) {
+        val route = a.markers.get(id)?.route ?: return
+        AlertDialog.Builder(a)
+            .setTitle("Speed")
+            .setSingleChoiceItems(Routes.SPEEDS.map { a.speedText(it) }.toTypedArray(), Routes.SPEEDS.indexOf(route.mph)) { dialog, i ->
+                a.markers.get(id)?.let { m -> m.route?.let { a.updateMarker(m.copy(route = it.copy(mph = Routes.SPEEDS[i]))) } }
+                dialog.dismiss()
+                build()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** New Route and Edit Route: how it works, how far, and Undo, Remove Point, Done. */
+    private fun route() {
+        val points = a.routes.points ?: return
+        add(a.body("Tap the map to add a point. Drag a point to move it. Drag the dot between two points to add a point there. " +
+            "Tap a point to select it.", muted = true, top = 12))
+        val summary = when (points.size) {
+            0 -> "No points"
+            1 -> "1 point"
+            else -> "${points.size} points · " + a.routeDetail(points, a.routes.editing?.let { a.markers.get(it) }?.route?.mph ?: Routes.DEFAULT_MPH)
+        } + (a.routes.chosen?.let { " · Point ${it + 1} selected" } ?: "")
+        add(a.mono(summary, 15f, muted = false).apply { setPadding(0, a.dp(10), 0, 0) })
+        add(a.buttons(
+            a.button("Undo") { a.routes.undo() }.apply { enable(a.routes.canUndo) },
+            a.button("Remove Point") { a.routes.removeChosen() }.apply { enable(a.routes.chosen != null) },
+            top = 14,
+        ))
+        add(a.button("Done", Kind.PRIMARY) { a.routes.finish() }.apply { layoutParams = lp(top = a.dp(10)); enable(points.size >= 2) })
     }
 
     private fun shareDetail(m: Marker): String = when {

@@ -145,8 +145,10 @@ object ShareJson {
             val properties = f.optJSONObject("properties")
             val id = (f.opt("id") as? String) ?: (properties?.optJSONObject("fieldmap")?.opt("id") as? String) ?: continue
             if (!ID.matches(id)) continue
-            // Read as any marker file is: a point, its name cut to length, its colour checked.
-            val read = try { Drawings.fromGeoJson(f.toString(), Palette.DEFAULT) { id }.markers.singleOrNull() } catch (e: IllegalArgumentException) { null } ?: continue
+            // Read as any marker file is: a point, its name cut to length, its colour checked. Routes
+            // are not shared yet: a line of more than two points is left out.
+            val read = try { Drawings.fromGeoJson(f.toString(), Palette.DEFAULT) { id }.markers.singleOrNull() } catch (e: IllegalArgumentException) { null }
+                ?.takeIf { !it.isRoute } ?: continue
             markers += read.copy(id = id, shared = true, updated = properties?.optString("updated").orEmpty(), by = properties?.optString("by").orEmpty())
         }
         val removed = o.optJSONArray("removed").let { a -> (0 until (a?.length() ?: 0)).mapNotNull { a?.opt(it) as? String } }

@@ -135,7 +135,7 @@ class ShareTest {
         assertEquals(
             listOf(
                 Marker("m-000001", 60.0, 10.5, "Hut", "#2a9d3f", shared = true, updated = t2, by = "phone-aaaa"),
-                // A line of two points is an arrow; one of three is nothing the app knows.
+                // A line of two points is an arrow; one of three (a route) is not shared yet.
                 Marker("m-000003", 2.0, 1.0, "", Palette.DEFAULT, shared = true, endLat = 4.0, endLon = 3.0),
                 Marker("m-000004", 4.0, 3.0, "By its own id", "#111111", shared = true),
             ),
