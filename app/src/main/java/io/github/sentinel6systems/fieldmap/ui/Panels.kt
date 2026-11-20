@@ -3,7 +3,9 @@ package io.github.sentinel6systems.fieldmap.ui
 import android.content.Context
 import android.graphics.Color
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -675,15 +677,24 @@ class Panels(private val a: MainActivity) {
         chatShown = ""
         chatFill()
         add(a.label("New Message"))
-        val text = a.field("Message", "", max = Message.MAX) {}
+        val text = a.field("Message", "", max = Message.MAX)
         add(text)
         val way = a.body("", muted = true, top = 4).also(::add)
         fun say() { way.text = routeText(partner) }
         say()
-        add(a.button("Send", Kind.PRIMARY) {
-            if (Messaging.send(partner, text.text.toString()) != null) { text.setText(""); hideKeyboard() }
+        fun send() {
+            if (Messaging.send(partner, text.text.toString()) != null) text.setText("")
             say()
-        }.apply { layoutParams = lp(top = a.dp(8)) })
+        }
+        // The keyboard's Enter (Send, Done, or the Enter key itself) sends, and the keyboard stays for the next one.
+        text.imeOptions = EditorInfo.IME_ACTION_SEND
+        text.setOnEditorActionListener { _, action, event ->
+            val enter = action == EditorInfo.IME_ACTION_SEND || action == EditorInfo.IME_ACTION_DONE ||
+                (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+            if (enter) send()
+            enter
+        }
+        add(a.button("Send", Kind.PRIMARY) { send(); hideKeyboard() }.apply { layoutParams = lp(top = a.dp(8)) })
     }
 
     /** The messages of the open conversation, the latest 50; built again only when they changed. */
