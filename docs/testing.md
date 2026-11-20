@@ -65,9 +65,11 @@ Sharing in the background was tested on the emulator:
 - on another device's map: a device at rest still shown as live after 48 seconds without news, one on the move
   shown grey
 
-Not tested yet for sharing: the background on a real device (the battery it really costs, the motion sensor, a
-night with the device lying still, the device makers' own battery savers), a link that comes and goes, and many
-devices at once.
+Battery on a real device: a recent Android phone shared its position in the background for about an hour,
+partly while driving, and its battery went from 75 % to 72 %, about 3 % per hour for the phone as a whole.
+
+Not tested yet for sharing: a night with the device lying still, the motion sensor on a real device, older
+devices and the device makers' own battery savers, a link that comes and goes, and many devices at once.
 
 ## Unit tests
 
