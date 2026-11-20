@@ -24,6 +24,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import io.github.sentinel6systems.fieldmap.R
+import io.github.sentinel6systems.fieldmap.mesh.MeshRadio
+import io.github.sentinel6systems.fieldmap.mesh.MeshShare
 import io.github.sentinel6systems.fieldmap.remote.NetBirdLink
 import io.github.sentinel6systems.fieldmap.remote.RemoteAccess
 import io.github.sentinel6systems.fieldmap.remote.Way
@@ -89,6 +91,9 @@ class ShareService : Service() {
         Net.start(this)
         // While the position is shared, the service can need the box's NetBird network.
         NetBirdLink.use(SHARING)
+        // ...and the mesh radio, which carries the position where there is no network.
+        MeshRadio.init(this)
+        MeshRadio.use()
         instance = this
     }
 
@@ -120,6 +125,7 @@ class ShareService : Service() {
         if (instance === this) instance = null
         // Sharing ended. If the app is also off the screen, nothing needs the NetBird client.
         NetBirdLink.release(SHARING, atOnce = true)
+        MeshRadio.release()
         listen(0)
         scope.cancel()
         awake?.let { if (it.isHeld) it.release() }
@@ -183,6 +189,7 @@ class ShareService : Service() {
         // Android may hand out positions faster than asked for: the pace is kept here.
         if (lastSent != 0L && now - lastSent < 600L * every) return
         val fix = location.toFix()
+        MeshShare.offer(fix)
         if (mover.take(fix.lat, fix.lon, fix.acc, fix.speed)) pace()
         // At rest the position says so: the others then know not to expect the next one soon.
         send(if (mover.still) fix.copy(course = null, speed = 0.0) else fix)

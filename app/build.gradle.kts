@@ -106,8 +106,10 @@ val meshtasticUnpack = tasks.register<Sync>("meshtasticUnpack") {
 
 wire {
     sourcePath { srcDir(meshtasticProtos) }
+    // Fieldmap's own messages over the mesh (app/src/main/proto/fieldmap/mesh.proto).
+    sourcePath { srcDir("src/main/proto") }
     // Only what the app talks to its radio with, and what that reaches.
-    root("meshtastic.ToRadio", "meshtastic.FromRadio", "meshtastic.AdminMessage", "meshtastic.Data")
+    root("meshtastic.ToRadio", "meshtastic.FromRadio", "meshtastic.AdminMessage", "meshtastic.Data", "fieldmap.MeshMessage")
     kotlin {}
 }
 tasks.matching { it.name.startsWith("generate") && it.name.endsWith("Protos") }.configureEach { dependsOn(meshtasticUnpack) }

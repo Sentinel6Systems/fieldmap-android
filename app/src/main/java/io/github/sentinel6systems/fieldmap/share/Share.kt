@@ -38,6 +38,8 @@ data class Peer(
     val uid: String, val name: String, val lat: Double, val lon: Double,
     val alt: Double? = null, val acc: Double? = null, val course: Double? = null, val speed: Double? = null,
     val age: Int = 0,
+    /** Heard over the mesh radio, which is slower than the server: it ages by the mesh pace. */
+    val mesh: Boolean = false,
 ) {
     /** Said to be staying where it is: such a phone sends seldom (see Pace), and is not old for that. */
     val still get() = speed != null && speed < 0.3

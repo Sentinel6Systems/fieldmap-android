@@ -40,6 +40,7 @@ import io.github.sentinel6systems.fieldmap.databinding.ActivityMainBinding
 import io.github.sentinel6systems.fieldmap.geo.GpsEngine
 import io.github.sentinel6systems.fieldmap.geo.Coords
 import io.github.sentinel6systems.fieldmap.mesh.MeshRadio
+import io.github.sentinel6systems.fieldmap.mesh.MeshShare
 import io.github.sentinel6systems.fieldmap.offline.Areas
 import io.github.sentinel6systems.fieldmap.offline.Box
 import io.github.sentinel6systems.fieldmap.offline.SavedArea
@@ -198,6 +199,10 @@ class MainActivity : AppCompatActivity() {
         panels = Panels(this)
         MeshRadio.init(this)
         MeshRadio.onChange = { panels.refresh() }
+        MeshShare.markers = { markers.markers }
+        MeshShare.onPeers = { peersChanged(); panels.refresh() }
+        MeshShare.onMarker = { sharing.fromMesh(it) }
+        MeshShare.inbox.toList().also { MeshShare.inbox.clear() }.forEach { sharing.fromMesh(it) }
 
         b.map.onCreate(savedInstanceState)
         b.map.addOnDidFailLoadingMapListener { pendingStyle?.let(::styleMissing) }
@@ -395,8 +400,8 @@ class MainActivity : AppCompatActivity() {
                 Feature.fromGeometry(Point.fromLngLat(p.lon, p.lat)).apply {
                     addStringProperty("id", p.uid)
                     addStringProperty("name", p.name)
-                    addStringProperty("icon", if (Ageing.look(p.age, info.interval, info.stale, p.still) == Ageing.Look.FRESH) PEER_FRESH else PEER_OLD)
-                    addNumberProperty("opacity", Ageing.opacity(p.age, info.interval, info.stale, p.still))
+                    addStringProperty("icon", if (sharing.look(p) == Ageing.Look.FRESH) PEER_FRESH else PEER_OLD)
+                    addNumberProperty("opacity", sharing.opacity(p))
                 }
             },
         )
@@ -1250,6 +1255,8 @@ class MainActivity : AppCompatActivity() {
             updateReadout()
             chooseHeadingSource()
             sharing.tick()
+            // The mesh radio carries the position too, at its own pace.
+            MeshShare.offer(fix())
             panels.peerTick()
             // Every quarter of a minute, and more often right after opening while nothing answers.
             if (ticks % 15 == 0 || (ticks < 6 && !reachable)) probe()
@@ -1300,6 +1307,9 @@ class MainActivity : AppCompatActivity() {
         if (isFinishing) sharing.closing()
         scope.cancel()
         MeshRadio.onChange = {}
+        MeshShare.markers = null
+        MeshShare.onPeers = {}
+        MeshShare.onMarker = null
         areas.onChange = {}
         areas.onSaved = {}
         b.map.onDestroy()

@@ -182,7 +182,8 @@ NetBird network also, the owner deletes it on the NetBird dashboard.
 | `.../offline/` | Offline areas on top of MapLibre's offline regions; counting tiles and estimating sizes |
 | `.../data/` | Markers and their file format |
 | `.../share/` | Live sharing: what is sent to and read from the server's `/mapshare/` service, bringing shared markers together (last change wins), how a position ages, and the service that keeps the position shared in the background (`ShareService`) |
-| `.../mesh/` | The Meshtastic radio: the Bluetooth link (`RadioLink`), finding, pairing and connecting (`MeshRadio`), and what the radio needs for the server's mesh (`RadioSetup`) |
+| `.../mesh/` | The Meshtastic radio: the Bluetooth link (`RadioLink`), finding, pairing and connecting (`MeshRadio`), what the radio needs for the server's mesh (`RadioSetup`), and Location Sharing over the mesh (`MeshShare`, with the messages in `MeshCodec`) |
+| `app/src/main/proto/fieldmap/` | Fieldmap's own messages over the mesh (positions, shared markers), sent on Meshtastic's private-app port on the server's channel |
 | `.../geo/` | UTM and MGRS; the GPS source |
 | `app/src/main/res/values*/colors.xml` | The colors of fieldmap-server's `ui/fieldmap.css`, light and dark |
 | `app/src/test/` | Unit tests |

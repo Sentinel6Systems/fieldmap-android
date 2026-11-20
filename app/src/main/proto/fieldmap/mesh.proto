@@ -1,0 +1,44 @@
+// Fieldmap over a Meshtastic mesh: what one device sends to the others of its server.
+//
+// Sent as the payload of a Meshtastic Data message with portnum PRIVATE_APP (256), on the
+// server's private channel only, to everybody (broadcast). One message per packet: a
+// Meshtastic packet carries at most 233 bytes, and every byte is airtime on a shared radio.
+syntax = "proto3";
+
+package fieldmap;
+
+option java_package = "io.github.sentinel6systems.fieldmap.mesh.proto";
+
+message MeshMessage {
+  oneof kind {
+    MeshPosition position = 1;
+    MeshMarker marker = 2;
+  }
+}
+
+// A device's own position, with who it is: the app's id (16 bytes when it is a UUID, as the
+// app makes it; otherwise its text) and the display name of Location Sharing, so that the
+// same person is one entry whether heard through the server or over the mesh.
+message MeshPosition {
+  bytes uid = 1;
+  string name = 2;
+  sfixed32 lat = 3;          // degrees * 1e7
+  sfixed32 lon = 4;          // degrees * 1e7
+  optional sint32 alt = 5;   // meters
+  optional uint32 acc = 6;   // meters
+  optional uint32 course = 7;  // degrees true
+  optional uint32 speed = 8;   // cm/s; 0 while the device stays in one place
+  uint32 time = 9;           // when the fix was taken, seconds since 1970
+}
+
+// A shared marker as it is now, or that it was deleted. The last change wins, by `updated`.
+message MeshMarker {
+  string id = 1;
+  sfixed32 lat = 2;
+  sfixed32 lon = 3;
+  string label = 4;
+  uint32 color = 5;          // 0xRRGGBB
+  uint32 updated = 6;        // seconds since 1970
+  bytes by = 7;              // the uid of the device that changed it last (as in MeshPosition)
+  bool deleted = 8;
+}

@@ -2,7 +2,9 @@ package io.github.sentinel6systems.fieldmap.ui
 
 import android.os.SystemClock
 import io.github.sentinel6systems.fieldmap.data.Marker
+import io.github.sentinel6systems.fieldmap.mesh.MeshMarkerChange
 import io.github.sentinel6systems.fieldmap.mesh.MeshRadio
+import io.github.sentinel6systems.fieldmap.mesh.MeshShare
 import io.github.sentinel6systems.fieldmap.server.Http
 import io.github.sentinel6systems.fieldmap.server.Route
 import io.github.sentinel6systems.fieldmap.share.Ageing
@@ -67,11 +69,23 @@ class Sharing(private val a: MainActivity) {
     /** This phone's position is reaching the box now. */
     val live get() = on && a.reachable && sentAt != 0L && now() - sentAt < 3000L * info.interval + 5000
 
-    /** The other phones, each with its age as of now; the ones that are too old are left out. */
+    /**
+     * The other phones, each with its age as of now; the ones that are too old are left out.
+     * Heard through the server and over the mesh radio: one entry for each, the latest.
+     */
     fun others(): List<Peer> {
         val waited = ((now() - peersAt) / 1000).toInt()
-        return peers.map { it.copy(age = it.age + waited) }.filter { Ageing.look(it.age, info.interval, info.stale, it.still) != Ageing.Look.GONE }
+        val all = peers.map { it.copy(age = it.age + waited) } + MeshShare.others()
+        return all.filter { it.uid != a.prefs.uid && look(it) != Ageing.Look.GONE }
+            .groupBy { it.uid }.map { (_, same) -> same.minBy { it.age } }
     }
+
+    /** How a position ages: by the server's pace, or by the slower mesh pace when it came over the radio. */
+    fun pace(p: Peer): Pair<Int, Int> = if (p.mesh) MeshShare.pace() else info.interval to info.stale
+
+    fun look(p: Peer): Ageing.Look = pace(p).let { (interval, stale) -> Ageing.look(p.age, interval, stale, p.still) }
+
+    fun opacity(p: Peer): Float = pace(p).let { (interval, stale) -> Ageing.opacity(p.age, interval, stale, p.still) }
 
     fun other(uid: String): Peer? = others().firstOrNull { it.uid == uid }
 
@@ -88,6 +102,7 @@ class Sharing(private val a: MainActivity) {
     /** Stops sending, and takes this phone's position off the box at once. */
     fun switchOff() {
         a.prefs.shareOn = false
+        MeshShare.reset()
         ShareService.stop(a)
         if (busy) leaveAfter = true else leave()
         a.shareChanged()
@@ -124,7 +139,7 @@ class Sharing(private val a: MainActivity) {
         val p = a.prefs.pending
         a.prefs.pending = p.copy(put = p.put + m.id, deleted = p.deleted - m.id)
         soon()
-        return m.copy(shared = true, updated = ShareJson.time(System.currentTimeMillis()), by = a.prefs.uid)
+        return m.copy(shared = true, updated = ShareJson.time(System.currentTimeMillis()), by = a.prefs.uid).also(MeshShare::markerChanged)
     }
 
     /** A shared marker was deleted here, or taken back to this phone alone: it goes from the box. */
@@ -132,6 +147,26 @@ class Sharing(private val a: MainActivity) {
         val p = a.prefs.pending
         a.prefs.pending = p.copy(put = p.put - id, deleted = p.deleted + (id to ShareJson.time(System.currentTimeMillis())))
         soon()
+        MeshShare.markerDeleted(id)
+    }
+
+    /**
+     * A shared marker changed over the mesh. The last change wins, as with the server; when it
+     * wins here, the server is told too (so that the devices on the server have it as well).
+     */
+    fun fromMesh(change: MeshMarkerChange) {
+        val state = ShareState(0, false, emptyList(), listOfNotNull(change.marker), if (change.marker == null) listOf(change.id) else emptyList())
+        val before = a.markers.get(change.id)
+        // Over the mesh a change can come late, or again: one that is not newer than what is here changes nothing.
+        if (before != null && before.shared && ShareJson.millis(before.updated) >= ShareJson.millis(change.at)) return
+        val merged = ShareMerge.merge(a.markers.markers, state, a.prefs.pending)
+        val after = merged.markers.firstOrNull { it.id == change.id }
+        var pending = merged.pending
+        if (change.marker != null && after == change.marker) pending = pending.copy(put = pending.put + change.id, deleted = pending.deleted - change.id)
+        if (change.marker == null && before?.shared == true && after == null) pending = pending.copy(deleted = pending.deleted + (change.id to change.at))
+        a.prefs.pending = pending
+        a.sharedMarkers(merged.markers)
+        if (pending.put.isNotEmpty() || pending.deleted.isNotEmpty()) soon()
     }
 
     /** Still to be sent to the box. */
@@ -147,7 +182,7 @@ class Sharing(private val a: MainActivity) {
     /** Once a second while the app is on the screen. */
     fun tick() {
         // Positions grow older between answers, and with no answers at all.
-        val look = others().joinToString { "${it.uid}:${(Ageing.opacity(it.age, info.interval, info.stale, it.still) * 10).toInt()}" }
+        val look = others().joinToString { "${it.uid}:${(opacity(it) * 10).toInt()}" }
         if (look != drawn) { drawn = look; a.peersChanged() }
         val words = summary() + live
         if (words != said) { said = words; a.shareChanged() }
@@ -304,7 +339,7 @@ class Sharing(private val a: MainActivity) {
             a.prefs.server == null -> "No Server"
             box == Box.NONE -> "Not supported by the server"
             box == Box.OFF -> "Disabled on the server"
-            !a.reachable -> "$mine · Offline"
+            !a.reachable -> "$mine · " + MeshShare.others().size.let { n -> if (n == 0) "Offline" else "Offline · $n on the mesh" }
             box == Box.UNKNOWN -> mine
             else -> "$mine · " + others().size.let { n -> if (n == 0) "No other devices" else if (n == 1) "1 other device" else "$n other devices" }
         }
@@ -322,6 +357,7 @@ class Sharing(private val a: MainActivity) {
     /** How it stands with this phone's own position, while sharing it is on. */
     fun mine(): String = when {
         box == Box.NONE || box == Box.OFF -> "On. The server isn't accepting locations right now."
+        !a.reachable && MeshShare.sending -> "On. No connection to the server. Sending over the mesh radio as ${a.prefs.shareName}."
         !a.reachable -> "On. No connection to the server."
         live -> "On. Others see you as ${a.prefs.shareName}."
         a.fix() == null -> "On. Acquiring GPS…"

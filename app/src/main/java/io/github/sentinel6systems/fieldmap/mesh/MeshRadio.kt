@@ -64,6 +64,7 @@ object MeshRadio {
         if (::context.isInitialized) return
         context = c.applicationContext
         prefs = Prefs(context)
+        MeshShare.init(context)
         status = if (prefs.radioAddress == null) Status.NONE else Status.OFFLINE
     }
 
@@ -220,7 +221,14 @@ object MeshRadio {
             } else if (state.nodeNum != 0) {
                 // After the settings: what changes later (battery, its own node, the radios it hears) is kept up to date.
                 state = state.take(message)
-                message.packet?.let { state = state.heard(it, System.currentTimeMillis() / 1000) }
+                message.packet?.let { p ->
+                    state = state.heard(p, System.currentTimeMillis() / 1000)
+                    // Fieldmap's own messages: only on the server's channel, which the radio could decrypt.
+                    val d = p.decoded
+                    if (status == Status.READY && d != null && d.portnum == PortNum.PRIVATE_APP && p.channel == RadioSetup.ourIndex(prefs.meshReadOnly)) {
+                        MeshShare.received(d.payload.toByteArray())
+                    }
+                }
                 onChange()
             }
         }
@@ -228,6 +236,7 @@ object MeshRadio {
         override fun unlinked() {
             link?.close()
             link = null
+            MeshShare.reset()
             if (status != Status.FAILED) status = Status.OFFLINE
             onChange()
             // Out of range or restarting after new settings: try again in a while.
@@ -243,7 +252,12 @@ object MeshRadio {
         val channel = prefs.meshChannel ?: run { status = Status.NO_CHANNEL; onChange(); return }
         val region = prefs.radioRegion?.let { r -> Config.LoRaConfig.RegionCode.entries.firstOrNull { it.name == r } }
         when (val plan = RadioSetup.plan(state, channel, prefs.shareName, region, prefs.meshReadOnly) { RadioSetup.randomPin() }) {
-            Setup.Ready -> { status = Status.READY; tries = 0 }
+            Setup.Ready -> {
+                val was = status
+                status = Status.READY
+                tries = 0
+                if (was != Status.READY) MeshShare.ready()
+            }
             Setup.NeedsRegion -> status = Status.NEEDS_REGION
             is Setup.Change -> {
                 if (++tries > MAX_TRIES) {
@@ -267,6 +281,20 @@ object MeshRadio {
         decoded = Data(portnum = PortNum.ADMIN_APP, payload = AdminMessage.ADAPTER.encode(message).toByteString(), want_response = true),
     )))
 
+    /**
+     * Sends one of Fieldmap's own messages to everybody on the server's channel. False when the
+     * radio is not ready for it (not connected, or not set up for the server's mesh).
+     */
+    fun sendApp(payload: ByteArray): Boolean {
+        val link = link ?: return false
+        if (status != Status.READY) return false
+        link.send(ToRadio(packet = MeshPacket(
+            to = BROADCAST, channel = RadioSetup.ourIndex(prefs.meshReadOnly), id = Random.nextInt(1, Int.MAX_VALUE),
+            decoded = Data(portnum = PortNum.PRIVATE_APP, payload = payload.toByteString()),
+        )))
+        return true
+    }
+
     /** Try connecting now (after a failure, or when Bluetooth came back on). */
     fun retryNow() {
         tries = 0
@@ -278,4 +306,5 @@ object MeshRadio {
     private const val RETRY_MS = 10_000L
     private const val MAX_TRIES = 2
     private const val NEARBY_S = 2 * 3600L
+    private const val BROADCAST = -1             // 0xffffffff: every radio
 }

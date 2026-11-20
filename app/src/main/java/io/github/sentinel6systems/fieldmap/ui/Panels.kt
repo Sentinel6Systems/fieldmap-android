@@ -504,7 +504,7 @@ class Panels(private val a: MainActivity) {
         val p = peerShown ?: return
         peerWhen?.text = when {
             now == null -> "${p.name} is no longer sharing. This is the last location received."
-            Ageing.look(p.age, info.interval, info.stale, p.still) == Ageing.Look.FRESH -> "Updated ${Ageing.text(p.age)}." + if (p.still && p.age >= 30) " ${p.name} is not moving." else ""
+            a.sharing.look(p) == Ageing.Look.FRESH -> "Updated ${Ageing.text(p.age)}." + if (p.still && p.age >= 30) " ${p.name} is not moving." else ""
             else -> "Last update ${Ageing.text(p.age)}. ${p.name} may have moved."
         }
         peerGrid?.text = a.coords(p.lat, p.lon)
