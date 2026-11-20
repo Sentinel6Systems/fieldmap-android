@@ -538,7 +538,7 @@ class Panels(private val a: MainActivity) {
 
     private fun meshLook(): String = with(MeshRadio) {
         listOf(status, problem, searching, found.keys.joinToString(), state.battery, state.firmware, a.prefs.radioAddress, a.prefs.radioPin,
-            a.prefs.meshChannel?.rev, a.prefs.meshReadOnly, nearby().joinToString { nodeDetail(it) }).joinToString("|")
+            a.prefs.meshChannel?.rev, a.prefs.meshReadOnly, a.prefs.meshNodesOnMap, nearby().joinToString { nodeDetail(it) }).joinToString("|")
     }
 
     private fun meshStatus(): String = when (MeshRadio.status) {
@@ -592,6 +592,11 @@ class Panels(private val a: MainActivity) {
             "Locations and markers always go on the server's private channel only.", muted = true, top = 4))
         val nodes = radio.nearby()
         add(a.label("Nodes Nearby"))
+        add(a.check("Show on Map", "Other Meshtastic radios that report a location appear on the map as green triangles.", a.prefs.meshNodesOnMap) {
+            a.prefs.meshNodesOnMap = it
+            a.nodesChanged()
+            build()
+        })
         if (nodes.isEmpty()) add(a.body(if (radio.status == MeshRadio.Status.READY) "No other radios heard in the last 2 hours." else "Connect to the radio to see the radios nearby.", muted = true))
         for (n in nodes) add(a.row(n.name, nodeDetail(n)) { a.openNode(n.num, fromList = true) })
         if (a.prefs.radioPin != 0) {

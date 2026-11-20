@@ -34,8 +34,12 @@ object MeshShare {
     var onMarker: ((MeshMarkerChange) -> Unit)? = null
     /** Marker changes heard while nobody took them. */
     val inbox = ArrayList<MeshMarkerChange>()
-    /** The radios (node numbers) that Fieldmap messages came from: the other Fieldmap devices. */
-    val fieldmapNodes = HashSet<Int>()
+    /**
+     * The radios (node numbers) that Fieldmap messages came from: the radios of the other
+     * Fieldmap devices. Kept across restarts: a device that stays in one place is heard only
+     * every ten minutes.
+     */
+    val fieldmapNodes: Set<Int> get() = if (::prefs.isInitialized) prefs.fieldmapRadios else emptySet()
 
     private class Heard(val peer: Peer, val at: Long)
 
@@ -133,7 +137,7 @@ object MeshShare {
     fun received(from: Int, bytes: ByteArray) {
         if (!::prefs.isInitialized) return
         val message = MeshCodec.decode(bytes) ?: return
-        fieldmapNodes += from
+        if (from !in prefs.fieldmapRadios) prefs.fieldmapRadios = prefs.fieldmapRadios + from
         message.position?.let { p ->
             val peer = MeshCodec.peer(p, System.currentTimeMillis()) ?: return@let
             if (peer.uid == prefs.uid) return@let

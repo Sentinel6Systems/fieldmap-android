@@ -143,6 +143,16 @@ class Prefs(context: Context) {
         get() = p.getBoolean("radio.readOnly", true)
         set(v) = p.edit { putBoolean("radio.readOnly", v) }
 
+    /** Other Meshtastic radios on the map (Menu > Mesh Radio > Show on Map); on until switched off. */
+    var meshNodesOnMap: Boolean
+        get() = p.getBoolean("radio.nodesOnMap", true)
+        set(v) = p.edit { putBoolean("radio.nodesOnMap", v) }
+
+    /** The radios of the other Fieldmap devices (node numbers), as heard over the mesh. */
+    var fieldmapRadios: Set<Int>
+        get() = p.getStringSet("radio.fieldmap", emptySet()).orEmpty().mapNotNull { it.toIntOrNull() }.toSet()
+        set(v) = p.edit { putStringSet("radio.fieldmap", v.map { it.toString() }.toSet()) }
+
     /** The LoRa region the person chose for a radio that had none (a RegionCode name). */
     var radioRegion: String?
         get() = p.getString("radio.region", null)

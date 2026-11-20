@@ -429,9 +429,12 @@ class MainActivity : AppCompatActivity() {
         return bitmap
     }
 
-    /** The radios heard lately that say where they are; with their rough area when that is all they give. */
+    /**
+     * The radios heard lately that say where they are; with their rough area when that is all
+     * they give. Not the radios of Fieldmap devices: those devices are on the map themselves.
+     */
     private fun nodesOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
-        MeshRadio.nearby().filter { it.lat != null && it.lon != null }.flatMap { n ->
+        if (!prefs.meshNodesOnMap) emptyList() else MeshRadio.nearby().filter { it.lat != null && it.lon != null && it.num !in MeshShare.fieldmapNodes }.flatMap { n ->
             val lat = n.lat!!
             val lon = n.lon!!
             val node = Feature.fromGeometry(Point.fromLngLat(lon, lat)).apply {
