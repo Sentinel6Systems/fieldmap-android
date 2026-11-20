@@ -179,6 +179,23 @@ class RadioSetupTest {
         assertTrue(s.take(FromRadio(lockdown_status = LockdownStatus(state = LockdownStatus.State.LOCKED))).locked)
     }
 
+    @Test fun whereOtherRadiosAreIsKeptRoughOrExact() {
+        val s = factory().take(FromRadio(node_info = NodeInfo(num = 0x55, user = User(long_name = "Ridge"), last_heard = 100,
+            position = org.meshtastic.proto.Position(latitude_i = 481_234_567, longitude_i = -1_227_654_321, precision_bits = 13))))
+        val n = s.nodes[0x55]!!
+        assertEquals(48.1234567, n.lat!!, 1e-7)
+        assertEquals(-122.7654321, n.lon!!, 1e-7)
+        assertEquals("13 bits: within about 2.9 km", 2912.5, n.radius, 0.1)
+        // A packet with no position keeps the one known; a position packet replaces it.
+        val later = s.heard(org.meshtastic.proto.MeshPacket(from = 0x55, hop_start = 3, hop_limit = 2), 200)
+        assertEquals(48.1234567, later.nodes[0x55]!!.lat!!, 1e-7)
+        val moved = later.heard(org.meshtastic.proto.MeshPacket(from = 0x55, decoded = org.meshtastic.proto.Data(portnum = org.meshtastic.proto.PortNum.POSITION_APP,
+            payload = org.meshtastic.proto.Position.ADAPTER.encode(org.meshtastic.proto.Position(latitude_i = 480_000_000, longitude_i = -1_220_000_000, precision_bits = 32)).toByteString())), 300)
+        assertEquals(48.0, moved.nodes[0x55]!!.lat!!, 1e-7)
+        assertEquals("exact", 0.0, moved.nodes[0x55]!!.radius, 0.0)
+        assertNull("no position: not on the map", factory().heard(org.meshtastic.proto.MeshPacket(from = 0x66), 1).nodes[0x66]!!.lat)
+    }
+
     @Test fun shortNamesAreInitialsOrTheStartOfTheName() {
         assertEquals("BTL", RadioSetup.shortName("Blue Team Lead"))
         assertEquals("ALPH", RadioSetup.shortName("alpha"))

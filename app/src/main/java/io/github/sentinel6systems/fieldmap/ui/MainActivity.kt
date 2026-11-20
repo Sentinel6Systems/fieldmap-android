@@ -86,6 +86,7 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.module.http.HttpRequestUtil
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
@@ -94,6 +95,9 @@ import org.maplibre.android.style.layers.PropertyFactory.circleOpacity
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
+import org.maplibre.android.style.layers.PropertyFactory.fillColor
+import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
+import org.maplibre.android.style.layers.PropertyFactory.fillOutlineColor
 import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.iconImage
@@ -198,7 +202,7 @@ class MainActivity : AppCompatActivity() {
         sharing = Sharing(this)
         panels = Panels(this)
         MeshRadio.init(this)
-        MeshRadio.onChange = { panels.refresh() }
+        MeshRadio.onChange = { panels.refresh(); nodesChanged() }
         MeshShare.markers = { markers.markers }
         MeshShare.onPeers = { peersChanged(); panels.refresh() }
         MeshShare.onMarker = { sharing.fromMesh(it) }
@@ -352,6 +356,21 @@ class MainActivity : AppCompatActivity() {
                 textColor("#111111"), textHaloColor(Color.WHITE), textHaloWidth(1.8f),
             ),
         )
+        // Other Meshtastic radios that the mesh radio hears and that say where they are: they may
+        // pass our packets on. A triangle under the markers and the people, and a faint circle
+        // where a radio gives only a rough position.
+        st.addImage(NODE, nodeSymbol())
+        st.addSource(GeoJsonSource(NODES, nodesOnMap()))
+        st.addLayerBelow(FillLayer(NODE_AREAS, NODES).withProperties(fillColor("#5c4d7d"), fillOpacity(0.08f), fillOutlineColor("#5c4d7d"))
+            .withFilter(Expression.eq(Expression.get("kind"), Expression.literal("area"))), MARKER_DOTS)
+        st.addLayerBelow(SymbolLayer(NODE_SYMBOLS, NODES).withProperties(iconImage(NODE), iconAllowOverlap(true), iconIgnorePlacement(true))
+            .withFilter(Expression.eq(Expression.get("kind"), Expression.literal("node"))), MARKER_DOTS)
+        if (font != null) st.addLayerBelow(
+            SymbolLayer(NODE_NAMES, NODES).withProperties(
+                textField(Expression.get("name")), textFont(font), textSize(12f), textOffset(arrayOf(1.0f, 0f)),
+                textAnchor(Property.TEXT_ANCHOR_LEFT), textAllowOverlap(false), textColor("#3d3352"), textHaloColor(Color.WHITE), textHaloWidth(1.6f),
+            ).withFilter(Expression.eq(Expression.get("kind"), Expression.literal("node"))), MARKER_DOTS,
+        )
         // The other phones: a diamond with the name beside it, so that nobody takes one for a
         // marker or for the phone's own position. Grey and fading once it stops being heard from.
         st.addImage(PEER_FRESH, peerSymbol(Color.parseColor("#00b4d8")))
@@ -390,6 +409,44 @@ class MainActivity : AppCompatActivity() {
         diamond(c - dp(2), Color.WHITE)
         diamond(c - dp(6), fill)
         return bitmap
+    }
+
+    /** Another Meshtastic radio: a small triangle (a mast), not a dot (marker) or a diamond (person). */
+    private fun nodeSymbol(): Bitmap {
+        val size = dp(22)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        fun triangle(inset: Float, colour: Int) {
+            paint.color = colour
+            canvas.drawPath(Path().apply { moveTo(size / 2f, inset); lineTo(size - inset, size - inset); lineTo(inset, size - inset); close() }, paint)
+        }
+        triangle(0f, 0x8c111111.toInt())
+        triangle(dp(2).toFloat(), Color.WHITE)
+        triangle(dp(5).toFloat(), Color.parseColor("#5c4d7d"))
+        return bitmap
+    }
+
+    /** The radios heard lately that say where they are; with their rough area when that is all they give. */
+    private fun nodesOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
+        MeshRadio.nearby().filter { it.lat != null && it.lon != null }.flatMap { n ->
+            val lat = n.lat!!
+            val lon = n.lon!!
+            val hops = when (n.hops) { null -> ""; 0 -> " · direct"; 1 -> " · 1 hop"; else -> " · ${n.hops} hops" }
+            val node = Feature.fromGeometry(Point.fromLngLat(lon, lat)).apply {
+                addStringProperty("kind", "node")
+                addStringProperty("name", n.name + hops)
+            }
+            val r = n.radius
+            if (r < 100) listOf(node) else listOf(node, Feature.fromGeometry(Polygon.fromLngLats(listOf((0..36).map { i ->
+                val a = Math.toRadians(i * 10.0)
+                Point.fromLngLat(lon + r * Math.sin(a) / (111_195.0 * Math.cos(Math.toRadians(lat))), lat + r * Math.cos(a) / 111_195.0)
+            }))).apply { addStringProperty("kind", "area") })
+        },
+    )
+
+    internal fun nodesChanged() {
+        style?.getSourceAs<GeoJsonSource>(NODES)?.setGeoJson(nodesOnMap())
     }
 
     private fun peerFilter() = Expression.eq(Expression.get("id"), Expression.literal(selectedPeer ?: ""))
@@ -1322,6 +1379,11 @@ class MainActivity : AppCompatActivity() {
         const val MARKER_DOTS = "fm-markers-dot"
         const val MARKER_SELECTED = "fm-markers-selected"
         const val PEERS = "fm-peers"
+        const val NODES = "fm-nodes"
+        const val NODE = "fm-node"
+        const val NODE_AREAS = "fm-nodes-area"
+        const val NODE_SYMBOLS = "fm-nodes-symbol"
+        const val NODE_NAMES = "fm-nodes-name"
         const val PEER_SYMBOLS = "fm-peers-symbol"
         const val PEER_SELECTED = "fm-peers-selected"
         const val PEER_FRESH = "fm-peer"

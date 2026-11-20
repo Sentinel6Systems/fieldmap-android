@@ -11,6 +11,7 @@ import org.meshtastic.proto.LockdownStatus
 import org.meshtastic.proto.MeshPacket
 import org.meshtastic.proto.ModuleSettings
 import org.meshtastic.proto.PortNum
+import org.meshtastic.proto.Position
 import org.meshtastic.proto.User
 import kotlin.math.floor
 
@@ -21,9 +22,28 @@ import kotlin.math.floor
 /**
  * Another radio the paired one has heard: on the server's channel, or on the public channel (a
  * stranger's radio, which may pass our packets on). `heard`: when, in seconds since 1970;
- * `hops`: 0 = heard directly, null = not known.
+ * `hops`: 0 = heard directly, null = not known. `lat`/`lon`: where it says it is, when it says
+ * so; `precision`: the bits of that position it gives (Meshtastic's position precision; 0 or 32
+ * = exact).
  */
-data class MeshNode(val num: Int, val name: String, val heard: Long, val hops: Int?, val snr: Float, val channel: Int)
+data class MeshNode(
+    val num: Int, val name: String, val heard: Long, val hops: Int?, val snr: Float, val channel: Int,
+    val lat: Double? = null, val lon: Double? = null, val precision: Int = 0,
+) {
+    /** Meters around the position where the radio may be: 0 when it gives its exact position. */
+    val radius: Double get() = if (precision in 1..31) 23_300.0 / Math.pow(2.0, (precision - 10).toDouble()) else 0.0
+
+    /** The node with the position of a Position message, when that holds one. */
+    fun at(p: Position?): MeshNode {
+        val la = p?.latitude_i ?: return this
+        val lo = p.longitude_i ?: return this
+        if (la == 0 && lo == 0) return this
+        val lat = la / 1e7
+        val lon = lo / 1e7
+        if (kotlin.math.abs(lat) > 90 || kotlin.math.abs(lon) > 180) return this
+        return copy(lat = lat, lon = lon, precision = p.precision_bits)
+    }
+}
 
 /** What the radio told the app about itself while it sent its settings (the want_config answer). */
 data class RadioState(
@@ -51,7 +71,7 @@ data class RadioState(
         m.node_info?.let { n ->
             if (n.num == s.nodeNum) s = s.copy(owner = n.user ?: s.owner, battery = n.device_metrics?.battery_level ?: s.battery)
             else if (n.num != 0) s = s.copy(nodes = s.nodes + (n.num to MeshNode(n.num, n.user?.long_name.orEmpty().ifEmpty { nodeName(n.num) },
-                n.last_heard.toLong() and 0xffffffffL, n.hops_away, n.snr, n.channel)))
+                n.last_heard.toLong() and 0xffffffffL, n.hops_away, n.snr, n.channel).at(n.position)))
         }
         m.config?.lora?.let { s = s.copy(lora = it) }
         m.config?.bluetooth?.let { s = s.copy(bluetooth = it) }
@@ -70,7 +90,12 @@ data class RadioState(
             try { User.ADAPTER.decode(d.payload).long_name.takeIf { it.isNotEmpty() }?.let { name = it } } catch (e: Exception) { /* not a User */ }
         }
         val hops = if (p.hop_start > 0) (p.hop_start - p.hop_limit).coerceAtLeast(0) else before?.hops
-        return copy(nodes = nodes + (p.from to MeshNode(p.from, name, now, hops, if (hops == 0) p.rx_snr else before?.snr ?: p.rx_snr, p.channel)))
+        var node = MeshNode(p.from, name, now, hops, if (hops == 0) p.rx_snr else before?.snr ?: p.rx_snr, p.channel,
+            before?.lat, before?.lon, before?.precision ?: 0)
+        if (d != null && d.portnum == PortNum.POSITION_APP) {
+            node = node.at(try { Position.ADAPTER.decode(d.payload) } catch (e: Exception) { null })
+        }
+        return copy(nodes = nodes + (p.from to node))
     }
 
     companion object {
