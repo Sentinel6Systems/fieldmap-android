@@ -68,4 +68,6 @@ or copy the `.apk` to the device and open it.
   [Pion](https://github.com/pion) (MIT) and [gRPC-Go](https://github.com/grpc/grpc-go) (Apache License 2.0).
   [nblink/LICENSES.md](nblink/LICENSES.md) lists all of them with their licenses.
 
-The code in this repository is under the MIT license. See [LICENSE](LICENSE).
+The code in this repository is under the GNU General Public License, version 3 (GPL-3.0). See
+[LICENSE](LICENSE). Copies of the app from before November 2026, when it was under the MIT license, keep
+that license.
