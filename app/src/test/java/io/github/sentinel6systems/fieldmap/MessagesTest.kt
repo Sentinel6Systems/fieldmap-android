@@ -94,6 +94,23 @@ class MessagesTest {
         assertEquals(other, msg(from = other, to = me, mine = false).partner)
     }
 
+    @Test fun theServerSaysWhoHasOurGroupMessagesAndTheStoreKeepsIt() {
+        val answer = MessageJson.fromServer("""{"seq": 3, "messages": [], "delivered": [], "groupDelivered": {"test-msg-0001": ["$other", "x!"]}}""")!!
+        assertEquals(mapOf("test-msg-0001" to setOf(other)), answer.group)
+        val file = File.createTempFile("messages", ".json").apply { delete() }
+        val store = MessageStore(file)
+        store.add(msg(to = Message.EVERYONE))
+        store.update("test-msg-0001") { it.copy(deliveredTo = it.deliveredTo + other + other) }
+        assertEquals(setOf(other), MessageStore(file).get("test-msg-0001")?.deliveredTo)
+        file.delete()
+    }
+
+    @Test fun aDeliveryNoteSaysWhoHasTheMessages() {
+        val note = MeshCodec.decode(MeshCodec.delivered(me, listOf("test-msg-0001"), by = other))!!.delivered!!
+        assertEquals(other, MeshCodec.uidText(note.by_))
+        assertEquals(null, MeshCodec.uidText(MeshCodec.decode(MeshCodec.delivered(me, listOf("test-msg-0001")))!!.delivered!!.by_))
+    }
+
     @Test fun aTypedMessageIsOneLineAndNoLongerThanFits() {
         assertEquals("a b", Message.clean("  a\n\tb "))
         assertEquals(Message.MAX, Message.clean("x".repeat(500)).length)

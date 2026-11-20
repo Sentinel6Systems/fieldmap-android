@@ -63,9 +63,11 @@ message MeshText {
   uint32 time = 6;           // when it was written, seconds since 1970
 }
 
-// Messages of a device on the mesh only that a relay passed on to the server and that reached
-// the device they were for: so that their sender sees them as delivered.
+// Messages that reached a device, told to the device that sent them: messages to everybody and
+// messages that went to every radio (Meshtastic confirms only those sent straight to a radio),
+// and messages of a device on the mesh only that a relay passed on to the server.
 message MeshDelivered {
   bytes to = 1;              // the uid of the device that sent them
   repeated string ids = 2;
+  bytes by = 3;              // the uid of the device that has them (empty: the one they were for)
 }

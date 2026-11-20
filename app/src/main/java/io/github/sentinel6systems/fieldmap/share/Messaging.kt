@@ -167,18 +167,20 @@ object Messaging {
             val mine = ArrayList<String>()
             for (m in answer.messages) {
                 if (m.to == me || m.to == Message.EVERYONE) receive(m)
-                if (m.to == me) mine += m.id
+                // Ours, and to everybody: the server is told this device has them.
+                if (m.to == me || m.to == Message.EVERYONE) mine += m.id
                 val forMesh = (m.to in carried && m.to in asked) || (m.to == Message.EVERYONE && m.from !in MeshShare.nodeOf)
                 if (meshReady && forMesh && m.id !in MeshShare.textsHeard && m.id !in relayed) relayLater(m, base)
             }
             if (mine.isNotEmpty()) ShareClient.post(base + "messages/delivered", MessageJson.delivered(mine, me))
             for (id in answer.delivered) store.update(id) { it.copy(status = MessageStatus.DELIVERED) }
+            for ((id, uids) in answer.group) store.update(id) { if (it.mine) it.copy(deliveredTo = it.deliveredTo + uids) else it }
             // Delivered messages of mesh people that a relay passed on: their senders are told over the mesh.
             val notes = answer.delivered.filter { it in passedOn && it !in noted }.groupBy { passedOn.getValue(it) }
             if (shown) for ((uid, ids) in notes) if (MeshShare.sendDelivered(uid, ids)) noted += ids
             prefs.messageSeq = answer.seq
             prefs.messageSeqFor = base
-            if (answer.delivered.isNotEmpty()) onChange()
+            if (answer.delivered.isNotEmpty() || answer.group.isNotEmpty()) onChange()
         } finally {
             fetching = false
         }
@@ -213,11 +215,32 @@ object Messaging {
         else if (!MeshShare.sendText(m, MeshShare.nodeOf[m.to])) relayed.remove(m.id)
     }
 
-    /** A relay says that these messages of this device reached the device they were for. */
-    fun deliveredOverMesh(ids: List<String>) {
+    /**
+     * A device says over the mesh that it has these messages of ours (`by`; empty: the one they
+     * were for, said by a relay). A message to a group counts the devices that have it.
+     */
+    fun deliveredOverMesh(ids: List<String>, by: String = "") {
         if (!::store.isInitialized) return
-        for (id in ids) store.update(id) { if (it.mine) it.copy(status = MessageStatus.DELIVERED) else it }
+        for (id in ids) store.update(id) {
+            when {
+                !it.mine -> it
+                it.to == Message.EVERYONE -> if (by.isEmpty()) it else it.copy(deliveredTo = it.deliveredTo + by)
+                else -> it.copy(status = MessageStatus.DELIVERED)
+            }
+        }
         onChange()
+    }
+
+    /** Messages that came over the mesh without Meshtastic's own confirmation: their senders hear from us, gathered for a while. */
+    private val notes = LinkedHashMap<String, MutableSet<String>>()
+    private val sendNotes = Runnable {
+        for ((uid, ids) in notes) MeshShare.sendDelivered(uid, ids.toList(), prefs.uid)
+        notes.clear()
+    }
+
+    private fun noteLater(sender: String, id: String) {
+        if (notes.isEmpty()) android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(sendNotes, NOTE_GATHER_MS)
+        notes.getOrPut(sender) { LinkedHashSet() } += id
     }
 
     /**
@@ -236,9 +259,13 @@ object Messaging {
     }
 
     /** A message heard over the mesh. For somebody who is not on the mesh, or for everybody, it goes on to the server too. */
-    fun fromMesh(m: Message) {
+    fun fromMesh(m: Message, direct: Boolean = false) {
         if (!::store.isInitialized) return
-        if (m.to == prefs.uid || m.to == Message.EVERYONE) receive(m)
+        if (m.to == prefs.uid || m.to == Message.EVERYONE) {
+            receive(m)
+            // Meshtastic confirms only what was sent straight to this radio; the rest we confirm ourselves.
+            if (!direct) noteLater(m.from, m.id)
+        }
         val forOthers = m.to != prefs.uid && (m.to == Message.EVERYONE || m.to !in MeshShare.nodeOf)
         if (forOthers && shown && serverBase != null) {
             post(m)
@@ -270,5 +297,6 @@ object Messaging {
 
     private const val CHANNEL = "messages"
     private const val MAX_FOR = 8                           // devices one request to the server may ask for
+    private const val NOTE_GATHER_MS = 20_000L              // delivery notes over the mesh are gathered into one packet
     private const val NOTIFIED = 2
 }

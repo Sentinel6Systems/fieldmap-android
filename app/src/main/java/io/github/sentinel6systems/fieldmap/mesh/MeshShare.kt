@@ -143,7 +143,8 @@ object MeshShare {
     }
 
     /** Something another Fieldmap device sent over the mesh. */
-    fun received(from: Int, bytes: ByteArray) {
+    /** `direct`: sent straight to this radio (Meshtastic confirmed it to the sender already). */
+    fun received(from: Int, bytes: ByteArray, direct: Boolean = false) {
         if (!::prefs.isInitialized) return
         val message = MeshCodec.decode(bytes) ?: return
         if (from !in prefs.fieldmapRadios) prefs.fieldmapRadios = prefs.fieldmapRadios + from
@@ -169,10 +170,10 @@ object MeshShare {
             if (m.from == prefs.uid) return@let
             nodeOf[m.from] = from
             textsHeard[m.id] = now()
-            Messaging.fromMesh(m)
+            Messaging.fromMesh(m, direct)
         }
         message.delivered?.let { d ->
-            if (MeshCodec.uidText(d.to) == prefs.uid) Messaging.deliveredOverMesh(d.ids)
+            if (MeshCodec.uidText(d.to) == prefs.uid) Messaging.deliveredOverMesh(d.ids, MeshCodec.uidText(d.by_).orEmpty())
         }
     }
 
@@ -190,9 +191,9 @@ object MeshShare {
     }
 
     /** A delivery note to the radio of `uid`: these messages of theirs arrived. */
-    fun sendDelivered(uid: String, ids: List<String>): Boolean {
+    fun sendDelivered(uid: String, ids: List<String>, by: String = ""): Boolean {
         val node = nodeOf[uid] ?: return false
-        return MeshRadio.sendApp(MeshCodec.delivered(uid, ids), node, wantAck = false) != null
+        return MeshRadio.sendApp(MeshCodec.delivered(uid, ids, by), node, wantAck = false) != null
     }
 
     /** Meshtastic's answer to a packet sent straight to a radio: from that radio itself, it arrived there. */

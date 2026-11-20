@@ -105,11 +105,12 @@ object MeshCodec {
         return encode(m.name).takeIf { it.size <= MAX_PAYLOAD } ?: encode("").takeIf { it.size <= MAX_PAYLOAD }
     }
 
-    /** These messages of `to` reached the device they were for (sent by a relay). As many ids as fit one packet. */
-    fun delivered(to: String, ids: List<String>): ByteArray {
+    /** These messages of `to` reached device `by` ("" when that is the one they were for). As many ids as fit one packet. */
+    fun delivered(to: String, ids: List<String>, by: String = ""): ByteArray {
         var take = ids.size
         while (true) {
-            val bytes = MeshMessage.ADAPTER.encode(MeshMessage(delivered = MeshDelivered(to = uidBytes(to), ids = ids.take(take))))
+            val bytes = MeshMessage.ADAPTER.encode(MeshMessage(delivered = MeshDelivered(to = uidBytes(to), ids = ids.take(take),
+                by_ = if (by.isEmpty()) ByteString.EMPTY else uidBytes(by))))
             if (bytes.size <= MAX_PAYLOAD || take <= 1) return bytes
             take--
         }

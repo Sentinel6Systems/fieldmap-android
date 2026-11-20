@@ -741,21 +741,23 @@ class Panels(private val a: MainActivity) {
         val list = chatList ?: return
         Messaging.store.markRead(partner)
         val messages = Messaging.store.conversation(partner).takeLast(50)
-        val look = messages.joinToString { it.id + it.status + it.via }
+        val look = messages.joinToString { it.id + it.status + it.via + it.deliveredTo.size }
         if (look == chatShown) return
         chatShown = look
         list.removeAllViews()
         if (messages.isEmpty()) list.addView(a.body("No messages yet.", muted = true, top = 8))
         for (m in messages) {
-            // How it went: through the server, over the mesh, or both (a message to everybody).
+            // How it went or came: through the server, over the mesh, or both (a message to everybody).
             val how = when (m.via) { "mesh" -> " (Mesh)"; "server" -> " (Server)"; "mesh+server" -> " (Server and Mesh)"; else -> "" }
-            val status = if (!m.mine) "" else " · " + when (m.status) {
-                MessageStatus.WAITING -> "Waiting"
-                MessageStatus.SENT -> "Sent$how"
-                MessageStatus.DELIVERED -> "Delivered$how"
+            val status = " · " + when {
+                !m.mine -> "Received$how"
+                m.status == MessageStatus.WAITING -> "Waiting"
+                // To a group: how many devices said they have it.
+                m.to == Message.EVERYONE -> "Sent$how" + if (m.deliveredTo.isEmpty()) "" else " · Delivered to ${m.deliveredTo.size}"
+                m.status == MessageStatus.SENT -> "Sent$how"
+                else -> "Delivered$how"
             }
-            val via = if (!m.mine && m.via == "mesh") " · Mesh" else ""
-            list.addView(a.mono((if (m.mine) "You" else m.name) + " · " + clock(m.time) + status + via, 12f).apply { setPadding(0, a.dp(10), 0, 0) })
+            list.addView(a.mono((if (m.mine) "You" else m.name) + " · " + clock(m.time) + status, 12f).apply { setPadding(0, a.dp(10), 0, 0) })
             list.addView(a.body(m.text))
         }
     }

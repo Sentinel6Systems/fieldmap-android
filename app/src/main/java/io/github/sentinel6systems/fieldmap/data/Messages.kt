@@ -21,6 +21,8 @@ enum class MessageStatus { WAITING, SENT, DELIVERED }
 data class Message(
     val id: String, val from: String, val name: String, val to: String, val text: String, val time: String,
     val mine: Boolean, val status: MessageStatus = MessageStatus.WAITING, val via: String = "", val read: Boolean = false,
+    /** For one of ours to a group: the devices that said they have it. */
+    val deliveredTo: Set<String> = emptySet(),
 ) {
     /** The conversation it belongs to: the other person's uid, or "*" for everybody. */
     val partner get() = if (to == EVERYONE || to == PUBLIC) to else if (mine) to else from
@@ -94,8 +96,11 @@ class MessageStore(private val file: File) {
     companion object { const val KEEP = 1000 }
 }
 
-/** What the server answers to GET /mapshare/messages. */
-class ServerMessages(val seq: Long, val messages: List<Message>, val delivered: List<String>)
+/**
+ * What the server answers to GET /mapshare/messages. `group`: for messages these devices sent to
+ * everybody, the uids that have them.
+ */
+class ServerMessages(val seq: Long, val messages: List<Message>, val delivered: List<String>, val group: Map<String, Set<String>> = emptyMap())
 
 object MessageJson {
     fun toServer(m: Message): String = JSONObject().put("id", m.id).put("from", m.from).put("name", m.name).put("to", m.to)
@@ -110,7 +115,11 @@ object MessageJson {
         val list = o.optJSONArray("messages")
         val messages = (0 until (list?.length() ?: 0)).mapNotNull { i -> list?.optJSONObject(i)?.let { incoming(it, "server") } }
         val ids = o.optJSONArray("delivered")
-        return ServerMessages(o.optLong("seq"), messages, (0 until (ids?.length() ?: 0)).mapNotNull { ids?.opt(it) as? String })
+        val g = o.optJSONObject("groupDelivered")
+        val group = g?.keys()?.asSequence()?.associateWith { id ->
+            g.optJSONArray(id)?.let { a -> (0 until a.length()).mapNotNull { (a.opt(it) as? String)?.takeIf(ShareJson.ID::matches) }.toSet() }.orEmpty()
+        }.orEmpty()
+        return ServerMessages(o.optLong("seq"), messages, (0 until (ids?.length() ?: 0)).mapNotNull { ids?.opt(it) as? String }, group)
     }
 
     /** A message that came in, checked as the server checks it. */
@@ -126,12 +135,14 @@ object MessageJson {
 
     fun toStore(m: Message): JSONObject = JSONObject().put("id", m.id).put("from", m.from).put("name", m.name).put("to", m.to).put("text", m.text)
         .put("time", m.time).put("mine", m.mine).put("status", m.status.name).put("via", m.via).put("read", m.read)
+        .put("deliveredTo", JSONArray(m.deliveredTo.toList()))
 
     fun fromStore(o: JSONObject?): Message? {
         o ?: return null
         val status = MessageStatus.entries.firstOrNull { it.name == o.optString("status") } ?: MessageStatus.WAITING
+        val to = o.optJSONArray("deliveredTo")?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String }.toSet() }.orEmpty()
         return Message(o.optString("id").ifEmpty { return null }, o.optString("from"), o.optString("name"), o.optString("to"), o.optString("text"),
-            o.optString("time"), o.optBoolean("mine"), status, o.optString("via"), o.optBoolean("read"))
+            o.optString("time"), o.optBoolean("mine"), status, o.optString("via"), o.optBoolean("read"), to)
     }
 }
 
