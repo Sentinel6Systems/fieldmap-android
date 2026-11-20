@@ -26,6 +26,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import io.github.sentinel6systems.fieldmap.R
+import io.github.sentinel6systems.fieldmap.data.Recording
+import io.github.sentinel6systems.fieldmap.geo.TrackKeeper
+import io.github.sentinel6systems.fieldmap.geo.TrackPoint
 import io.github.sentinel6systems.fieldmap.mesh.MeshRadio
 import io.github.sentinel6systems.fieldmap.mesh.MeshShare
 import io.github.sentinel6systems.fieldmap.remote.NetBirdLink
@@ -98,6 +101,12 @@ class ShareService : Service() {
         MeshRadio.init(this)
         MeshRadio.use()
         Messaging.init(this)
+        // A track being recorded: positions come from here, on the screen or not.
+        Recording.init(this)
+        Recording.onState = {
+            try { ServiceCompat.startForeground(this, NOTIFICATION, notification(), kinds()) } catch (e: Exception) { /* as it was */ }
+            record()
+        }
         instance = this
     }
 
@@ -116,6 +125,7 @@ class ShareService : Service() {
             return START_NOT_STICKY
         }
         watch()
+        record()
         main.removeCallbacks(poll)
         main.postDelayed(poll, POLL_MS)
         // Not started again by Android after it had to end it: a position may only be taken
@@ -130,7 +140,7 @@ class ShareService : Service() {
     @SuppressLint("InlinedApi")                 // the kinds are plain numbers, and older Androids take no notice of them
     private fun kinds(): Int {
         var kinds = 0
-        if (prefs.shareOn && mayLocate()) kinds = kinds or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        if ((prefs.shareOn || Recording.state != Recording.State.OFF) && mayLocate()) kinds = kinds or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         if (prefs.radioAddress != null && MeshRadio.allowed()) kinds = kinds or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         if (Build.VERSION.SDK_INT >= 34) kinds = kinds or ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
         return kinds
@@ -170,6 +180,9 @@ class ShareService : Service() {
         NetBirdLink.release(SHARING, atOnce = true)
         MeshRadio.release()
         listen(0)
+        recordEvery = -1
+        try { locations.removeUpdates(recorder) } catch (e: Exception) { /* was not listening */ }
+        Recording.onState = {}
         scope.cancel()
         awake?.let { if (it.isHeld) it.release() }
         super.onDestroy()
@@ -248,6 +261,34 @@ class ShareService : Service() {
         if (mover.take(fix.lat, fix.lon, fix.acc, fix.speed)) pace()
         // At rest the position says so: the others then know not to expect the next one soon.
         send(if (mover.still) fix.copy(course = null, speed = 0.0) else fix)
+    }
+
+    /* ---------- recording a track ---------- */
+
+    private var recordEvery = 0                 // seconds between positions for the recording; 0: not asking
+
+    /** While a track is recorded (not paused), positions straight from the satellite receiver, apart from sharing's. */
+    @SuppressLint("MissingPermission")          // started only once the permission is there
+    private fun record() {
+        val seconds = if (Recording.state == Recording.State.ON && mayLocate()) TrackKeeper.sample(Recording.interval) else 0
+        if (seconds == recordEvery) return
+        recordEvery = seconds
+        try { locations.removeUpdates(recorder) } catch (e: Exception) { /* was not listening */ }
+        if (seconds == 0) return
+        try {
+            locations.requestLocationUpdates(LocationManager.GPS_PROVIDER, seconds * 1000L, 0f, recorder, Looper.getMainLooper())
+        } catch (e: Exception) { /* no receiver or no permission: nothing is recorded */ }
+    }
+
+    private val recorder = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            val fix = location.toFix()
+            Recording.take(TrackPoint(fix.lat, fix.lon, fix.alt, fix.time, fix.acc), fix.speed)
+        }
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+        @Deprecated("Deprecated in Java")
+        override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
     }
 
     /* ---------- the motion sensor ---------- */
@@ -380,17 +421,23 @@ class ShareService : Service() {
     private fun notification(): Notification {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Fieldmap Running", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Shows while Fieldmap runs in the background: location sharing, messages, the mesh radio."
+            description = "Shows while Fieldmap runs in the background: location sharing, track recording, messages, the mesh radio."
             setShowBadge(false)
         })
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, ShareService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE)
         val sharing = prefs.shareOn
+        val recording = Recording.state != Recording.State.OFF
         val radio = prefs.radioAddress != null
-        val what = listOfNotNull("location sharing".takeIf { sharing }, "new messages").joinToString(" and ")
+        val what = listOfNotNull("location sharing".takeIf { sharing }, "track recording".takeIf { recording }, "new messages").joinToString(", ")
         return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(if (sharing) R.drawable.ic_locate else R.drawable.ic_message)
-            .setContentTitle(if (sharing) "Location Sharing Active" else "Fieldmap Running")
+            .setSmallIcon(if (sharing || recording) R.drawable.ic_locate else R.drawable.ic_message)
+            .setContentTitle(when {
+                recording && Recording.state == Recording.State.PAUSED -> "Track Recording Paused"
+                recording -> "Recording Track"
+                sharing -> "Location Sharing Active"
+                else -> "Fieldmap Running"
+            })
             .setContentText("Keeps $what in the background. Exit Fieldmap in its Menu to stop.")
             .setStyle(NotificationCompat.BigTextStyle().bigText("When you leave Fieldmap or swipe it away, it keeps $what" +
                 (if (radio) " (also over the mesh radio)" else "") + ". To stop it, open Fieldmap and press Exit in the Menu."))

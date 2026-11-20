@@ -3,6 +3,7 @@ package io.github.sentinel6systems.fieldmap.data
 import org.json.JSONArray
 import org.json.JSONException
 import io.github.sentinel6systems.fieldmap.geo.Routes
+import io.github.sentinel6systems.fieldmap.geo.TrackPoint
 import org.json.JSONObject
 import kotlin.math.abs
 
@@ -17,9 +18,12 @@ data class Marker(
     val shared: Boolean = false, val updated: String = "", val by: String = "",
     val endLat: Double? = null, val endLon: Double? = null,
     val route: PlannedRoute? = null,
+    val track: RecordedTrack? = null,
 ) {
     val isArrow get() = endLat != null && endLon != null
     val isRoute get() = route != null
+    /** A recorded track: kept on this device and exported, not shared. */
+    val isTrack get() = track != null
     /**
      * What it can be: a route (2) more than an arrow (1) more than a point (0). An app from before
      * routes sees a route of two points as an arrow; such a copy never takes the route's place.
@@ -38,6 +42,12 @@ data class Marker(
  * so only the points travel. `mph`: the speed its time is worked out at (one of Routes.SPEEDS).
  */
 data class PlannedRoute(val points: List<Pair<Double, Double>>, val mph: Int = Routes.DEFAULT_MPH, val type: RouteType = RouteType.STRAIGHT)
+
+/**
+ * A track recorded by this device (Menu > Track Recording): its segments, the parts between
+ * Pause and Resume, each of at least two points.
+ */
+data class RecordedTrack(val segments: List<List<TrackPoint>>)
 
 /**
  * How a route's legs go: by road (BRouter's car profile), on foot by roads, tracks and trails (its
@@ -74,7 +84,7 @@ object Drawings {
      * line: a route's line as it is drawn (for other software); without it, its points.
      */
     fun feature(m: Marker, sharing: Boolean = false, line: List<Pair<Double, Double>>? = null): JSONObject {
-        val kind = when { m.isRoute -> "route"; m.isArrow -> "arrow"; else -> "marker" }
+        val kind = when { m.isTrack -> "track"; m.isRoute -> "route"; m.isArrow -> "arrow"; else -> "marker" }
         val fieldmap = JSONObject().put("kind", kind).put("label", m.label).put("color", m.color).put("id", m.id)
         val properties = JSONObject().put("name", m.label).put("stroke", m.color).put("marker-color", m.color).put("fieldmap", fieldmap)
         if (sharing && m.shared) {
@@ -86,6 +96,14 @@ object Drawings {
         // A route is its line, for other software; its points are in "fieldmap" too, so that it can
         // be edited again when its line no longer goes straight from point to point.
         val geometry = when {
+            // A track: its segments, with heights; the times and stops in "fieldmap" (seconds since 1970, seconds stopped).
+            m.track != null -> {
+                fieldmap.put("times", JSONArray().apply { for (seg in m.track.segments) put(JSONArray().apply { for (p in seg) put(p.time / 1000) }) })
+                fieldmap.put("still", JSONArray().apply { for (seg in m.track.segments) put(JSONArray().apply { for (p in seg) put(p.still) }) })
+                JSONObject().put("type", "MultiLineString").put("coordinates", JSONArray().apply {
+                    for (seg in m.track.segments) put(JSONArray().apply { for (p in seg) put(JSONArray().put(p.lon).put(p.lat).apply { p.alt?.let { put(Math.round(it * 10) / 10.0) } }) })
+                })
+            }
             m.route != null -> {
                 fieldmap.put("waypoints", positions(m.route.points)).put("speedMph", m.route.mph).put("routing", m.route.type.key)
                 JSONObject().put("type", "LineString").put("coordinates", positions(line?.takeIf { it.size >= 2 } ?: m.route.points))
@@ -142,11 +160,14 @@ object Drawings {
                 "MultiPoint" -> for (i in 0 until (coords?.length() ?: 0)) {
                     point(coords?.optJSONArray(i))?.let { markers += Marker(newId(), it.first, it.second, name, color) } ?: skipped++
                 }
-                "LineString" -> line(coords, fm)?.let {
-                    markers += it.copy(id = id ?: newId(), label = name, color = color, shared = shared,
-                        updated = if (shared) p.optString("updated") else "", by = if (shared) p.optString("by") else "")
-                } ?: skipped++
-                "MultiLineString" -> for (i in 0 until (coords?.length() ?: 0)) {
+                "MultiLineString", "LineString" -> if (fm?.optString("kind") == "track") {
+                    track(g.optString("type"), coords, fm)?.let { markers += Marker(id ?: newId(), it.segments[0][0].lat, it.segments[0][0].lon, name, color, track = it) } ?: skipped++
+                } else if (g.optString("type") == "LineString") {
+                    line(coords, fm)?.let {
+                        markers += it.copy(id = id ?: newId(), label = name, color = color, shared = shared,
+                            updated = if (shared) p.optString("updated") else "", by = if (shared) p.optString("by") else "")
+                    } ?: skipped++
+                } else for (i in 0 until (coords?.length() ?: 0)) {
                     line(coords?.optJSONArray(i), null)?.let { markers += it.copy(id = newId(), label = name, color = color) } ?: skipped++
                 }
                 else -> skipped++
@@ -184,10 +205,28 @@ object Drawings {
         return Marker("", 0.0, 0.0, "", "", route = PlannedRoute(listOf(0.0 to 0.0), mph, type)).withPoints(Routes.simplify(points, MAX_ROUTE_POINTS))
     }
 
+    /** A track from the app's own file: its segments with times (and heights, stops); null when they do not match. */
+    private fun track(type: String, c: JSONArray?, fm: JSONObject): RecordedTrack? {
+        val parts = (if (type == "LineString") listOf(c) else (0 until (c?.length() ?: 0)).map { c?.optJSONArray(it) })
+        val times = fm.optJSONArray("times")
+        val still = fm.optJSONArray("still")
+        val segments = parts.mapIndexedNotNull { i, part ->
+            val t = times?.optJSONArray(i)
+            val positions = part ?: return@mapIndexedNotNull null
+            (0 until positions.length()).map { k ->
+                val pos = positions.optJSONArray(k) ?: return null
+                val (lat, lon) = point(pos) ?: return null
+                val alt = pos.optDouble(2).takeIf { pos.length() > 2 && it.isFinite() }
+                TrackPoint(lat, lon, alt, (t?.optLong(k) ?: 0L) * 1000, still = still?.optJSONArray(i)?.optInt(k) ?: 0)
+            }.takeIf { it.size >= 2 }
+        }
+        return if (segments.isEmpty()) null else RecordedTrack(segments)
+    }
+
     /** The name the next new marker gets: P1, P2, ... (the first number not yet used); A1, A2, ... for an arrow, R1, R2, ... for a route. */
-    fun nextName(markers: List<Marker>, arrow: Boolean = false, route: Boolean = false): String {
-        val prefix = if (route) "R" else if (arrow) "A" else "P"
-        val same = markers.filter { it.isArrow == arrow && it.isRoute == route }
+    fun nextName(markers: List<Marker>, arrow: Boolean = false, route: Boolean = false, track: Boolean = false): String {
+        val prefix = if (track) "T" else if (route) "R" else if (arrow) "A" else "P"
+        val same = markers.filter { it.isArrow == arrow && it.isRoute == route && it.isTrack == track }
         val used = same.mapNotNull { Regex("^$prefix(\\d+)$").find(it.label)?.groupValues?.get(1)?.toIntOrNull() }.toSet()
         var n = same.size + 1
         while (n in used) n++

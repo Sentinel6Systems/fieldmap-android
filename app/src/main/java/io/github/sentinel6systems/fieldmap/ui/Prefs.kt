@@ -158,6 +158,11 @@ class Prefs(context: Context) {
     var routeLegs: Boolean
         get() = p.getBoolean("route.legs", true)
         set(v) = p.edit { putBoolean("route.legs", v) }
+    /** Seconds between the points of a track recording (Menu > Track Recording): 15, 30, 60 or 300. */
+    var recordInterval: Int
+        get() = p.getInt("record.interval", 30)
+        set(v) = p.edit { putInt("record.interval", v) }
+
     /** The Route Type new routes start with: the last one chosen. Walking at first. */
     var routeType: io.github.sentinel6systems.fieldmap.data.RouteType
         get() = io.github.sentinel6systems.fieldmap.data.RouteType.of(p.getString("route.type", null)) ?: io.github.sentinel6systems.fieldmap.data.RouteType.WALKING

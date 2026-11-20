@@ -22,6 +22,8 @@ import io.github.sentinel6systems.fieldmap.data.MessageRoute
 import io.github.sentinel6systems.fieldmap.data.MessageStatus
 import io.github.sentinel6systems.fieldmap.data.Palette
 import io.github.sentinel6systems.fieldmap.data.PlannedRoute
+import io.github.sentinel6systems.fieldmap.data.Recording
+import io.github.sentinel6systems.fieldmap.geo.TrackStats
 import io.github.sentinel6systems.fieldmap.data.RouteType
 import io.github.sentinel6systems.fieldmap.geo.CoordFormat
 import io.github.sentinel6systems.fieldmap.geo.Coords
@@ -65,6 +67,7 @@ enum class Screen(val title: String, val parent: Screen?) {
     MARKER("Marker", null),
     MOVE("Move Marker", MARKER),
     ROUTE("New Route", MARKERS),
+    RECORD("Track Recording", MENU),
     SHARING("Location Sharing", MENU),
     MESH("Mesh Radio", MENU),
     MESSAGES("Messages", MENU),
@@ -175,6 +178,7 @@ class Panels(private val a: MainActivity) {
         a.b.panelTitle.text = when {
             next == Screen.ROUTE -> if (a.routes.editing != null) "Edit Route" else next.title
             next == Screen.MARKER && chosen?.isRoute == true -> "Route"
+            next == Screen.MARKER && chosen?.isTrack == true -> "Track"
             (next == Screen.MARKER || next == Screen.MOVE) && chosen?.isArrow == true -> if (next == Screen.MARKER) "Arrow" else "Move Arrow"
             else -> next.title
         }
@@ -202,6 +206,7 @@ class Panels(private val a: MainActivity) {
                 if (m.route != null && routeLook(m.route) != routeShown) build() else (markerShare?.tag as? TextView)?.text = shareDetail(m)
             }
             Screen.ROUTE -> a.routes.route?.let { if (routeLook(it) != routeShown) build() }
+            Screen.RECORD -> build()
             Screen.SERVER -> if (!serverBusy) { serverText?.text = serverState(); if (a.remoteNow || !a.reachable) remoteSection(null) }
             else -> {}
         }
@@ -233,6 +238,7 @@ class Panels(private val a: MainActivity) {
             Screen.PEER -> peer()
             Screen.SERVER -> server()
             Screen.SETTINGS -> settings()
+            Screen.RECORD -> record()
             Screen.NONE -> {}
         }
     }
@@ -247,6 +253,11 @@ class Panels(private val a: MainActivity) {
         add(a.row("Map Style", a.shownStyleName() ?: "None") { show(Screen.STYLES) })
         add(a.row("Offline Areas", if (saved.isEmpty()) "None" else "${saved.size} downloaded · ${bytesText(a.areas.storedBytes())}") { show(Screen.AREAS) })
         add(a.row("Markers", if (a.markers.markers.isEmpty()) "None" else "${a.markers.markers.size}") { show(Screen.MARKERS) })
+        add(a.row("Track Recording", when (Recording.state) {
+            Recording.State.OFF -> "Off"
+            Recording.State.ON -> "Recording · " + a.distanceText(TrackStats(Recording.segments).meters)
+            Recording.State.PAUSED -> "Paused · " + a.distanceText(TrackStats(Recording.segments).meters)
+        }) { show(Screen.RECORD) })
         add(a.row("Location Sharing", a.sharing.summary()) { show(Screen.SHARING) })
         add(a.row("Messages", Messaging.store.unread().let { if (it == 0) "No new messages" else "$it new" }) { show(Screen.MESSAGES) })
         add(a.row("Mesh Radio", if (a.prefs.radioAddress == null) "Not Paired" else meshStatus() +
@@ -442,6 +453,7 @@ class Panels(private val a: MainActivity) {
             "keep holding and drag to where it points. To add a marker at your location, touch and hold the blue dot.", muted = true, top = 12))
         for (m in list.asReversed()) {
             val where = when {
+                m.track != null -> TrackStats(m.track.segments).let { "Track · " + a.distanceText(it.meters) + " · " + Routes.timeText((it.seconds / 60).toInt()) }
                 m.route != null -> "Route · " + a.distanceText(a.routeLines.legs(m.route).sumOf { Routes.length(it.line) }) + " · ${m.route.points.size} points"
                 m.isArrow -> "Arrow · " + a.arrowDetail(m)
                 else -> a.coords(m.lat, m.lon, brief = true)
@@ -480,7 +492,23 @@ class Panels(private val a: MainActivity) {
         })
         mark(m.color)
 
-        if (m.route != null) {
+        if (m.track != null) {
+            // A recorded track: how far and how long, moving and stopped, up and down, when.
+            val t = TrackStats(m.track.segments)
+            add(a.label("Distance and Time"))
+            add(a.mono(a.distanceText(t.meters) + " · " + Routes.timeText((t.seconds / 60).toInt()), 18f, muted = false))
+            add(a.mono("Moving " + Routes.timeText((t.movingSeconds / 60).toInt()) + " · Stopped " + Routes.timeText((t.stoppedSeconds / 60).toInt()), 15f, muted = false))
+            t.climb?.let { (up, down) ->
+                add(a.label("Elevation"))
+                add(a.mono(a.heightText(up) + " up · " + a.heightText(down) + " down", 16f, muted = false))
+            }
+            add(a.label("Recorded"))
+            val first = m.track.segments.first().first().time
+            val last = m.track.segments.last().last().time
+            add(a.mono(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(first)) + " – " +
+                DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(last)), 15f, muted = false))
+            add(a.mono("${t.points} points" + if (m.track.segments.size > 1) " · ${m.track.segments.size} parts (paused between)" else "", 14f))
+        } else if (m.route != null) {
             // A route: how its legs go, how long and how long it takes at its speed, each leg, then where
             // it starts and ends (as the settings say).
             val points = m.route.points
@@ -526,12 +554,15 @@ class Panels(private val a: MainActivity) {
         }
 
         // One choice, off until the person makes it. A server known to have no sharing does not offer it.
-        if (m.shared || a.sharing.box != Sharing.Box.NONE) {
+        // A recorded track is not shared: it is exported.
+        if (!m.isTrack && (m.shared || a.sharing.box != Sharing.Box.NONE)) {
             markerShare = a.check("Share with All Devices", shareDetail(m), m.shared) { on -> hideKeyboard(); a.shareMarker(m.id, on); build() }
                 .apply { layoutParams = lp(top = a.dp(10)) }.also(::add)
         }
         val delete = a.button("Delete", Kind.DANGER) { if (a.markers.get(m.id)?.shared == true) confirmDeleteShared(m.id) else { a.deleteMarker(m.id); back() } }
-        if (m.isRoute) {
+        if (m.isTrack) {
+            add(a.buttons(a.button("Delete", Kind.DANGER) { confirmDeleteTrack(m.id) }, a.button("Export") { a.exportTrack(m) }, top = 16))
+        } else if (m.isRoute) {
             add(a.buttons(delete, a.button("Edit Route") { a.routes.start(m.id) }, top = 16))
         } else if (m.isArrow) {
             add(a.buttons(
@@ -611,8 +642,60 @@ class Panels(private val a: MainActivity) {
             .show()
     }
 
+    /** A recorded track cannot be made again: deleting asks first. */
+    private fun confirmDeleteTrack(id: String) {
+        AlertDialog.Builder(a)
+            .setTitle("Delete Track?")
+            .setMessage("This deletes the recorded track from this device. Export it first to keep a copy.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Delete") { _, _ -> a.deleteMarker(id); if (screen == Screen.MARKER) back() }
+            .show()
+    }
+
+    /* ---------- track recording ---------- */
+
+    /** Track Recording: the interval, and Start Recording; while on, Pause or Resume, and Stop. */
+    private fun record() {
+        val state = Recording.state
+        add(a.body("Records your path on this device, also with the screen off or another app open. Standing still adds no " +
+            "points; turns add points sooner, so winding trails keep their shape.", muted = true, top = 12))
+        val interval = if (state == Recording.State.OFF) a.prefs.recordInterval else Recording.interval
+        add(a.row("Point Interval", intervalText(interval)) { chooseInterval() }.apply { layoutParams = lp(top = a.dp(6)) })
+        if (state == Recording.State.OFF) {
+            add(a.button("Start Recording", Kind.PRIMARY) { a.startRecording() }.apply { layoutParams = lp(top = a.dp(12)) })
+            return
+        }
+        val t = TrackStats(Recording.segments)
+        add(a.label(if (state == Recording.State.ON) "Recording" else "Paused"))
+        add(a.mono("Since " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(Recording.started)) + " · " + a.distanceText(t.meters) +
+            " · ${t.points} point${if (t.points == 1) "" else "s"}", 16f, muted = false))
+        add(a.buttons(
+            if (state == Recording.State.ON) a.button("Pause") { Recording.pause() } else a.button("Resume") { Recording.resume() },
+            a.button("Stop", Kind.PRIMARY) { a.stopRecording() },
+            top = 14,
+        ))
+    }
+
+    private fun intervalText(seconds: Int) = if (seconds < 60) "$seconds s" else "${seconds / 60} min"
+
+    /** 15 s, 30 s, 1 min or 5 min between points; while recording, from now on. */
+    private fun chooseInterval() {
+        val choices = Recording.INTERVALS
+        val now = if (Recording.state == Recording.State.OFF) a.prefs.recordInterval else Recording.interval
+        AlertDialog.Builder(a)
+            .setTitle("Point Interval")
+            .setSingleChoiceItems(choices.map(::intervalText).toTypedArray(), choices.indexOf(now)) { dialog, i ->
+                dialog.dismiss()
+                a.prefs.recordInterval = choices[i]
+                if (Recording.state != Recording.State.OFF) Recording.interval(choices[i])
+                build()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     /** "marker", "arrow" or "route", for the words about one. */
-    private fun noun(m: Marker?) = if (m?.isRoute == true) "route" else if (m?.isArrow == true) "arrow" else "marker"
+    private fun noun(m: Marker?) = if (m?.isTrack == true) "track" else if (m?.isRoute == true) "route" else if (m?.isArrow == true) "arrow" else "marker"
 
     private fun shareDetail(m: Marker): String = when {
         !m.shared -> "Off. This ${noun(m)} is only on this device."

@@ -9,6 +9,8 @@ import kotlin.math.roundToInt
 import io.github.sentinel6systems.fieldmap.geo.Arrows
 import io.github.sentinel6systems.fieldmap.geo.Routes
 import io.github.sentinel6systems.fieldmap.data.PlannedRoute
+import io.github.sentinel6systems.fieldmap.data.Recording
+import io.github.sentinel6systems.fieldmap.data.Gpx
 import io.github.sentinel6systems.fieldmap.offline.RoutingFiles
 import org.maplibre.android.style.layers.PropertyFactory.iconColor
 import org.maplibre.android.style.layers.PropertyFactory.iconHaloColor
@@ -234,6 +236,8 @@ class MainActivity : AppCompatActivity() {
         routeLines = RouteLines(this)
         routeLines.onLeg = routes::snapped
         routingFiles.onChange = { panels.refresh() }
+        Recording.init(this)
+        Recording.onChange = ::recordingChanged
         MeshRadio.init(this)
         MeshRadio.onChange = { panels.refresh(); nodesChanged() }
         Messaging.init(this)
@@ -386,6 +390,16 @@ class MainActivity : AppCompatActivity() {
             circleStrokeWidth(3f)).withFilter(arrowEndsFilter()))
         // While an arrow is being drawn: a dashed line from where the finger held to where it is.
         add(LineLayer("fm-drag", DRAG).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineDasharray(arrayOf(2f, 1.5f))))
+        // Recorded tracks: a line in the colour with a white halo, a dot where it starts; the one
+        // being recorded in the warning colour.
+        st.addSource(GeoJsonSource(TRACKS, tracksOnMap()))
+        fun trackPart(name: String) = Expression.eq(Expression.get("part"), Expression.literal(name))
+        add(LineLayer("fm-tracks-halo", TRACKS).withProperties(lineColor(Color.WHITE), lineWidth(6f), lineOpacity(0.6f), lineCap(Property.LINE_CAP_ROUND),
+            lineJoin(Property.LINE_JOIN_ROUND)).withFilter(trackPart("line")))
+        add(LineLayer(TRACK_LINES, TRACKS).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineCap(Property.LINE_CAP_ROUND),
+            lineJoin(Property.LINE_JOIN_ROUND)).withFilter(trackPart("line")))
+        add(CircleLayer("fm-tracks-start", TRACKS).withProperties(circleRadius(5f), circleColor(Color.WHITE), circleStrokeColor(Expression.get("color")),
+            circleStrokeWidth(3f)).withFilter(trackPart("start")))
         // Routes: a line in the colour with a white halo, as the arrows, small chevrons along it the
         // way it goes, a dot where it starts; its points (numbered) while it is chosen or drawn, and
         // while it is drawn the dots in the middle of its legs.
@@ -436,6 +450,13 @@ class MainActivity : AppCompatActivity() {
                     textAllowOverlap(true), textIgnorePlacement(true), textRotationAlignment(Property.TEXT_ROTATION_ALIGNMENT_MAP),
                     textRotate(Expression.get("rotate")), textColor("#111111"), textHaloColor(Color.WHITE), textHaloWidth(1.6f),
                 ).withFilter(Expression.eq(Expression.get("part"), Expression.literal("leg"))), "fm-markers-ring",
+            )
+            st.addLayerBelow(
+                SymbolLayer("fm-tracks-name", TRACKS).withProperties(
+                    textField(Expression.get("label")), textFont(font), textSize(15f), textOffset(arrayOf(0.9f, 0f)),
+                    textAnchor(Property.TEXT_ANCHOR_LEFT), textAllowOverlap(true), textIgnorePlacement(true),
+                    textColor("#111111"), textHaloColor(Color.WHITE), textHaloWidth(1.8f),
+                ).withFilter(Expression.eq(Expression.get("part"), Expression.literal("start"))), "fm-markers-ring",
             )
             st.addLayerBelow(
                 SymbolLayer("fm-routes-name", ROUTES).withProperties(
@@ -603,6 +624,9 @@ class MainActivity : AppCompatActivity() {
     internal fun speedText(mph: Int): String =
         if (imperial) "$mph mph" else String.format(Locale.US, "%d mph (%.0f km/h)", mph, mph * 1.609344)
 
+    /** A height difference in feet or meters, as distances are shown. */
+    internal fun heightText(meters: Double): String = if (imperial) "${(meters / 0.3048).roundToInt()} ft" else "${meters.roundToInt()} m"
+
     /** An arrow's length and bearing, for its panel and the Markers list. */
     internal fun arrowDetail(m: Marker): String = arrowText(m)
 
@@ -631,7 +655,7 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun markersOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
-        markers.markers.filter { !it.isArrow && !it.isRoute }.map { m ->
+        markers.markers.filter { !it.isArrow && !it.isRoute && !it.isTrack }.map { m ->
             Feature.fromGeometry(Point.fromLngLat(m.lon, m.lat)).apply {
                 addStringProperty("id", m.id)
                 addStringProperty("label", m.label)
@@ -682,6 +706,69 @@ class MainActivity : AppCompatActivity() {
             }
             out
         })
+    }
+
+    /** The recorded tracks, each segment a line, and the track being recorded. */
+    private fun tracksOnMap(): FeatureCollection {
+        val all = markers.markers.mapNotNull { m -> m.track?.let { Triple(m.id, m.color, m.label) to it.segments } } +
+            (if (Recording.state != Recording.State.OFF) listOf(Triple(RECORDING, hex(R.color.warn), "") to Recording.segments) else emptyList())
+        return FeatureCollection.fromFeatures(all.flatMap { (about, segments) ->
+            val (id, color, label) = about
+            fun part(f: Feature, name: String) = f.apply { addStringProperty("id", id); addStringProperty("color", color); addStringProperty("part", name) }
+            val out = ArrayList<Feature>()
+            for (s in segments) if (s.size >= 2) out += part(Feature.fromGeometry(LineString.fromLngLats(s.map { Point.fromLngLat(it.lon, it.lat) })), "line")
+            segments.firstOrNull()?.firstOrNull()?.let { out += part(Feature.fromGeometry(Point.fromLngLat(it.lon, it.lat)), "start").apply { addStringProperty("label", label) } }
+            out
+        })
+    }
+
+    /** The recording changed (a point, Pause, Resume, Stop): its line, the top bar, the panel. */
+    private fun recordingChanged() {
+        style?.getSourceAs<GeoJsonSource>(TRACKS)?.setGeoJson(tracksOnMap())
+        updateStatus()
+        panels.refresh()
+    }
+
+    /** Starts recording this device's track. It needs the position, so the permission is asked for first. */
+    internal fun startRecording() {
+        val go = {
+            Recording.start(prefs.recordInterval)
+            notifyAsked = false
+            keepRunning()
+        }
+        if (mayLocate()) go() else {
+            afterLocation = go
+            askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+
+    /** Ends the recording: it becomes a track (T1, T2, ...) in the Markers list, and its panel opens. */
+    internal fun stopRecording(open: Boolean = true) {
+        val track = Recording.stop()
+        if (track == null) {
+            if (open) toast("Nothing was recorded. A track needs at least two points.")
+            return
+        }
+        val m = markers.addTrack(track, prefs.color)
+        markersChanged()
+        if (open) openMarker(m.id, fromList = true)
+    }
+
+    /** A track as a GPX file, handed to another app (or saved) through Android's share sheet. */
+    internal fun exportTrack(m: Marker) {
+        try {
+            val dir = File(cacheDir, "exports").apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() }
+            val name = m.label.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().ifEmpty { "track" }
+            val file = File(dir, "$name.gpx").apply { writeText(Gpx.track(m)) }
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", file)
+            val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/gpx+xml")
+                .putExtra(android.content.Intent.EXTRA_STREAM, uri).putExtra(android.content.Intent.EXTRA_SUBJECT, m.label)
+                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            startActivity(android.content.Intent.createChooser(send, "Export Track"))
+        } catch (e: Exception) {
+            toast("Couldn't export the track.")
+        }
     }
 
     /** Draws the routes again: one changed, is being drawn, or the settings of what they show changed. */
@@ -1058,8 +1145,11 @@ class MainActivity : AppCompatActivity() {
         if (saving != null) b.progress.progress = saving.percent
         // While this phone's position is shared, the strip says so: amber while it is getting
         // through, grey while it is not (out of reach, no position yet).
-        b.sharing.visibility = if (sharing.on) View.VISIBLE else View.GONE
-        b.sharing.setTextColor(color(if (sharing.live) R.color.amber else R.color.muted))
+        // A recording says so beside it, in the same tag.
+        val recording = when (Recording.state) { Recording.State.ON -> "Recording"; Recording.State.PAUSED -> "Paused"; else -> null }
+        b.sharing.text = listOfNotNull(getString(R.string.sharing).takeIf { sharing.on }, recording).joinToString(" · ")
+        b.sharing.visibility = if (sharing.on || recording != null) View.VISIBLE else View.GONE
+        b.sharing.setTextColor(color(if (sharing.live || Recording.state == Recording.State.ON) R.color.amber else R.color.muted))
     }
 
     /* ---------- saved areas ---------- */
@@ -1227,6 +1317,7 @@ class MainActivity : AppCompatActivity() {
         m.queryRenderedFeatures(around, MARKER_DOTS).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
         m.queryRenderedFeatures(around, ARROW_LINES).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
         m.queryRenderedFeatures(around, ROUTE_LINES, ROUTE_DASHED).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
+        m.queryRenderedFeatures(around, TRACK_LINES).firstOrNull()?.getStringProperty("id")?.takeIf { it != RECORDING }?.let { openMarker(it, fromList = false); return true }
         m.queryRenderedFeatures(around, PEER_SYMBOLS).firstOrNull()?.getStringProperty("id")?.let { openPeer(it, fromList = false); return true }
         m.queryRenderedFeatures(around, NODE_SYMBOLS).firstOrNull()?.getNumberProperty("num")?.let { openNode(it.toInt(), fromList = false); return true }
         return false
@@ -1237,7 +1328,7 @@ class MainActivity : AppCompatActivity() {
         select(id)
         panels.showMarker(fromList)
         // Bring it into view (an arrow by its middle, a route by the middle of its box), unless the map is following the phone.
-        val points = marker.route?.points
+        val points = marker.route?.points ?: marker.track?.segments?.flatten()?.map { it.lat to it.lon }
         val lat = if (points != null) (points.minOf { it.first } + points.maxOf { it.first }) / 2 else if (marker.isArrow) (marker.lat + marker.endLat!!) / 2 else marker.lat
         val lon = if (points != null) (points.minOf { it.second } + points.maxOf { it.second }) / 2 else if (marker.isArrow) (marker.lon + marker.endLon!!) / 2 else marker.lon
         if (follow == Follow.FREE) b.root.post { map?.animateCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lon)), 400) }
@@ -1361,7 +1452,8 @@ class MainActivity : AppCompatActivity() {
 
     /** Closes the app for good: the position goes from the others' maps, and nothing runs on. */
     internal fun quit() {
-        // The one way to end Fieldmap: the background service stops too.
+        // The one way to end Fieldmap: the background service stops too. A recording is kept as a track.
+        if (Recording.state != Recording.State.OFF) stopRecording(open = false)
         sharing.closing()
         finishAndRemoveTask()
     }
@@ -1389,6 +1481,7 @@ class MainActivity : AppCompatActivity() {
 
     internal fun markersChanged() {
         style?.getSourceAs<GeoJsonSource>(MARKERS)?.setGeoJson(markersOnMap())
+        style?.getSourceAs<GeoJsonSource>(TRACKS)?.setGeoJson(tracksOnMap())
         style?.getSourceAs<GeoJsonSource>(ARROWS)?.setGeoJson(arrowsOnMap())
         routesChanged()
     }
@@ -1449,7 +1542,7 @@ class MainActivity : AppCompatActivity() {
             style?.let(::startLocation)
             if (then != null) then() else if (locationOn) setFollow(Follow.NORTH)
         } else {
-            toast(if (then != null) "Location sharing needs the Location permission." else "Showing your location needs the Location permission.")
+            toast(if (then != null) "This needs the Location permission." else "Showing your location needs the Location permission.")
         }
     }
 
@@ -1672,6 +1765,7 @@ class MainActivity : AppCompatActivity() {
         MeshShare.markers = null
         MeshShare.onPeers = {}
         MeshShare.onMarker = null
+        Recording.onChange = {}
         Messaging.onChange = {}
         areas.onChange = {}
         areas.onSaved = {}
@@ -1689,6 +1783,10 @@ class MainActivity : AppCompatActivity() {
         const val ROUTES = "fm-routes"
         const val ROUTE_LINES = "fm-routes-line"
         const val ROUTE_DASHED = "fm-routes-dashed"
+        const val TRACKS = "fm-tracks"
+        const val TRACK_LINES = "fm-tracks-line"
+        /** The id on the map of the track being recorded. */
+        const val RECORDING = "fm-recording"
         const val CHEVRON = "fm-chevron"
         /** The id on the map of the route being drawn. */
         const val DRAWN = "fm-drawn"

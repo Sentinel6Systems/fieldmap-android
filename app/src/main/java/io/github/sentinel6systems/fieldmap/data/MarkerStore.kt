@@ -45,6 +45,15 @@ class MarkerStore(private val file: File) {
         return m
     }
 
+    /** A finished recording, as a track (T1, T2, ...). */
+    fun addTrack(track: RecordedTrack, color: String): Marker {
+        val first = track.segments[0][0]
+        val m = Marker(newId(), first.lat, first.lon, Drawings.nextName(markers, track = true), color, track = track)
+        markers = markers + m
+        save()
+        return m
+    }
+
     fun update(m: Marker) {
         markers = markers.map { if (it.id == m.id) m else it }
         save()
@@ -64,11 +73,11 @@ class MarkerStore(private val file: File) {
 
     /** Adds the markers of a loaded file, leaving out the ones already here. Returns how many were added. */
     fun addAll(loaded: List<Marker>): Int {
-        val have = markers.map { listOf(it.lat, it.lon, it.label, it.endLat, it.endLon, it.route) }.toMutableSet()
+        val have = markers.map { listOf(it.lat, it.lon, it.label, it.endLat, it.endLon, it.route, it.track) }.toMutableSet()
         val ids = markers.map { it.id }.toMutableSet()
         val fresh = ArrayList<Marker>()
         for (m in loaded) {
-            if (!have.add(listOf(m.lat, m.lon, m.label, m.endLat, m.endLon, m.route))) continue
+            if (!have.add(listOf(m.lat, m.lon, m.label, m.endLat, m.endLon, m.route, m.track))) continue
             // What comes from a file is this phone's own until the person shares it.
             val own = m.copy(shared = false, updated = "", by = "")
             fresh += if (ids.add(own.id)) own else own.copy(id = newId().also { ids.add(it) })
