@@ -1,8 +1,10 @@
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.squareup.wire")
 }
 
 // Release signing is read from a file outside the repository (see README, "Release builds").
@@ -64,6 +66,51 @@ val nblink = tasks.register<Exec>("nblink") {
     commandLine(rootProject.file("nblink/build.sh").path, library.asFile.path)
 }
 tasks.named("preBuild") { dependsOn(nblink) }
+
+// The messages of Meshtastic radios (mesh/): Meshtastic's protobuf definitions, at the release
+// pinned here and checked against its SHA-256, made into Kotlin classes by Wire. The repository
+// holds none of Meshtastic's files. See README, "Build".
+val meshtasticVersion = "2.8.3"
+val meshtasticSha256 = "8d43d2927df93f7000e2473e40ecdaf3fc48992577582fb107979611dc44ee50"
+val meshtasticFiles = listOf("admin", "atak", "channel", "config", "connection_status", "device_ui", "field_metadata", "mesh",
+    "module_config", "portnums", "telemetry", "xmodem")
+val meshtasticArchive = layout.buildDirectory.file("meshtastic/protobufs-$meshtasticVersion.tar.gz")
+val meshtasticGet = tasks.register("meshtasticGet") {
+    val archive = meshtasticArchive
+    outputs.file(archive)
+    doLast {
+        val file = archive.get().asFile
+        fun sha256(f: File) = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+        if (file.isFile && sha256(file) == meshtasticSha256) return@doLast
+        file.parentFile.mkdirs()
+        uri("https://github.com/meshtastic/protobufs/archive/refs/tags/v$meshtasticVersion.tar.gz").toURL().openStream().use { input ->
+            file.outputStream().use { input.copyTo(it) }
+        }
+        val got = sha256(file)
+        if (got != meshtasticSha256) {
+            file.delete()
+            throw GradleException("Meshtastic protobufs v$meshtasticVersion: SHA-256 is $got, expected $meshtasticSha256")
+        }
+    }
+}
+val meshtasticProtos = layout.buildDirectory.dir("meshtastic/proto")
+val meshtasticUnpack = tasks.register<Sync>("meshtasticUnpack") {
+    dependsOn(meshtasticGet)
+    from(tarTree(resources.gzip(meshtasticArchive))) {
+        include(meshtasticFiles.map { "*/meshtastic/$it.proto" })
+        eachFile { path = path.substringAfter('/') }
+    }
+    includeEmptyDirs = false
+    into(meshtasticProtos)
+}
+
+wire {
+    sourcePath { srcDir(meshtasticProtos) }
+    // Only what the app talks to its radio with, and what that reaches.
+    root("meshtastic.ToRadio", "meshtastic.FromRadio", "meshtastic.AdminMessage", "meshtastic.Data")
+    kotlin {}
+}
+tasks.matching { it.name.startsWith("generate") && it.name.endsWith("Protos") }.configureEach { dependsOn(meshtasticUnpack) }
 
 dependencies {
     implementation(files("libs/nblink.aar").builtBy(nblink))

@@ -63,6 +63,17 @@ The library is large: about 38 MB for each processor type. The APK has the libra
 (64-bit ARM, 32-bit ARM, and x86-64 for emulators) in compressed form. Android unpacks only the library of the
 device.
 
+## The Meshtastic messages
+
+The app talks to Meshtastic radios with Meshtastic's own protobuf definitions
+([meshtastic/protobufs](https://github.com/meshtastic/protobufs), GPL-3.0). The repository does not contain them.
+The Gradle task `meshtasticGet` downloads the release named in `app/build.gradle.kts` (`meshtasticVersion`) and
+checks its SHA-256 (`meshtasticSha256`); `meshtasticUnpack` takes the files the app needs, and the Wire plugin
+makes Kotlin classes of them (package `org.meshtastic.proto`). The first build needs internet access for this.
+
+To use a newer release, change `meshtasticVersion` and `meshtasticSha256` (`sha256sum` of the release's
+`.tar.gz`), build, run the unit tests, and test with a real radio.
+
 ## Release builds
 
 A release build is signed with your own key, which never goes into the repository. Keep the keystore and a
@@ -171,6 +182,7 @@ NetBird network also, the owner deletes it on the NetBird dashboard.
 | `.../offline/` | Offline areas on top of MapLibre's offline regions; counting tiles and estimating sizes |
 | `.../data/` | Markers and their file format |
 | `.../share/` | Live sharing: what is sent to and read from the server's `/mapshare/` service, bringing shared markers together (last change wins), how a position ages, and the service that keeps the position shared in the background (`ShareService`) |
+| `.../mesh/` | The Meshtastic radio: the Bluetooth link (`RadioLink`), finding, pairing and connecting (`MeshRadio`), and what the radio needs for the server's mesh (`RadioSetup`) |
 | `.../geo/` | UTM and MGRS; the GPS source |
 | `app/src/main/res/values*/colors.xml` | The colors of fieldmap-server's `ui/fieldmap.css`, light and dark |
 | `app/src/test/` | Unit tests |

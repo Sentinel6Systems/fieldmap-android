@@ -39,6 +39,7 @@ import io.github.sentinel6systems.fieldmap.data.MarkerStore
 import io.github.sentinel6systems.fieldmap.databinding.ActivityMainBinding
 import io.github.sentinel6systems.fieldmap.geo.GpsEngine
 import io.github.sentinel6systems.fieldmap.geo.Coords
+import io.github.sentinel6systems.fieldmap.mesh.MeshRadio
 import io.github.sentinel6systems.fieldmap.offline.Areas
 import io.github.sentinel6systems.fieldmap.offline.Box
 import io.github.sentinel6systems.fieldmap.offline.SavedArea
@@ -195,6 +196,8 @@ class MainActivity : AppCompatActivity() {
         areas = Areas(this)
         sharing = Sharing(this)
         panels = Panels(this)
+        MeshRadio.init(this)
+        MeshRadio.onChange = { panels.refresh() }
 
         b.map.onCreate(savedInstanceState)
         b.map.addOnDidFailLoadingMapListener { pendingStyle?.let(::styleMissing) }
@@ -1087,6 +1090,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** What asked for the Bluetooth permissions: a search for radios, or connecting to the paired one. */
+    private var afterBluetooth: (() -> Unit)? = null
+
+    private val askBluetooth = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        val then = afterBluetooth
+        afterBluetooth = null
+        if (granted.values.all { it }) then?.invoke() else toast("The mesh radio needs the Nearby Devices permission.")
+    }
+
+    private fun withBluetooth(then: () -> Unit) {
+        if (!MeshRadio.bluetoothOn) return toast("Turn on Bluetooth to use the mesh radio.")
+        if (MeshRadio.allowed()) return then()
+        afterBluetooth = then
+        askBluetooth.launch(MeshRadio.permissions)
+    }
+
+    /** Menu > Mesh Radio > Pair Radio. */
+    internal fun searchRadios() = withBluetooth { MeshRadio.search() }
+
+    /** Menu > Mesh Radio > Connect. */
+    internal fun connectRadio() = withBluetooth { MeshRadio.retryNow() }
+
     private fun mayLocate() = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         .any { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
 
@@ -1240,6 +1265,8 @@ class MainActivity : AppCompatActivity() {
         ShareService.shown(true)
         NetBirdLink.use(SCREEN)
         keepSharing()
+        // The paired mesh radio is connected while the app is in view.
+        MeshRadio.use()
     }
 
     override fun onResume() {
@@ -1262,6 +1289,7 @@ class MainActivity : AppCompatActivity() {
         ShareService.shown(false)
         // Nobody looks at the map: the NetBird client stops (after a minute), unless the sharing service needs it.
         NetBirdLink.release(SCREEN, atOnce = isFinishing)
+        MeshRadio.release()
         super.onStop()
     }
     override fun onLowMemory() { super.onLowMemory(); b.map.onLowMemory() }
@@ -1271,6 +1299,7 @@ class MainActivity : AppCompatActivity() {
         // Closed for good: this phone's position goes from the box at once.
         if (isFinishing) sharing.closing()
         scope.cancel()
+        MeshRadio.onChange = {}
         areas.onChange = {}
         areas.onSaved = {}
         b.map.onDestroy()

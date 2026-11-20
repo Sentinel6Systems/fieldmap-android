@@ -2,6 +2,7 @@ package io.github.sentinel6systems.fieldmap.ui
 
 import android.os.SystemClock
 import io.github.sentinel6systems.fieldmap.data.Marker
+import io.github.sentinel6systems.fieldmap.mesh.MeshRadio
 import io.github.sentinel6systems.fieldmap.server.Http
 import io.github.sentinel6systems.fieldmap.server.Route
 import io.github.sentinel6systems.fieldmap.share.Ageing
@@ -219,7 +220,10 @@ class Sharing(private val a: MainActivity) {
         if (rev.isEmpty() || a.prefs.meshChannel?.rev == rev) return
         val r = ShareClient.get(place + "mesh")
         val channel = if (r.code == 200) ShareJson.mesh(r.body) else null
-        if (channel != null && home == a.prefs.server) a.prefs.meshChannel = channel
+        if (channel != null && home == a.prefs.server) {
+            a.prefs.meshChannel = channel
+            MeshRadio.channelChanged()
+        }
     }
 
     private fun switchedOff() {

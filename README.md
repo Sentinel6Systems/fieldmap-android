@@ -67,6 +67,9 @@ or copy the `.apk` to the device and open it.
   [wireguard-go](https://git.zx2c4.com/wireguard-go) (MIT), [gVisor](https://gvisor.dev) (Apache License 2.0),
   [Pion](https://github.com/pion) (MIT) and [gRPC-Go](https://github.com/grpc/grpc-go) (Apache License 2.0).
   [nblink/LICENSES.md](nblink/LICENSES.md) lists all of them with their licenses.
+- Meshtastic radios: the message definitions of [Meshtastic](https://github.com/meshtastic/protobufs) (GPL-3.0),
+  downloaded by the build at a pinned release and made into Kotlin classes by [Wire](https://github.com/square/wire)
+  (Apache License 2.0). The repository holds no Meshtastic files.
 
 The code in this repository is under the GNU General Public License, version 3 (GPL-3.0). See
 [LICENSE](LICENSE). Copies of the app from before November 2026, when it was under the MIT license, keep

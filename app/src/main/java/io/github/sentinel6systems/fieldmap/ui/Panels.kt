@@ -18,6 +18,9 @@ import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.Palette
 import io.github.sentinel6systems.fieldmap.geo.CoordFormat
 import io.github.sentinel6systems.fieldmap.geo.Coords
+import io.github.sentinel6systems.fieldmap.mesh.MeshNode
+import io.github.sentinel6systems.fieldmap.mesh.MeshRadio
+import io.github.sentinel6systems.fieldmap.mesh.RadioSetup
 import io.github.sentinel6systems.fieldmap.offline.Areas
 import io.github.sentinel6systems.fieldmap.remote.RemoteAccess
 import io.github.sentinel6systems.fieldmap.remote.RemoteInfo
@@ -51,6 +54,7 @@ enum class Screen(val title: String, val parent: Screen?) {
     MARKER("Marker", null),
     MOVE("Move Marker", MARKER),
     SHARING("Location Sharing", MENU),
+    MESH("Mesh Radio", MENU),
     PEER("Shared Location", null),
     SERVER("Server", MENU),
     SETTINGS("Settings", MENU),
@@ -138,6 +142,7 @@ class Panels(private val a: MainActivity) {
             Screen.MENU, Screen.STYLES, Screen.AREAS, Screen.MARKERS -> build()
             Screen.SAVE -> estimate()
             Screen.SHARING -> sharingFill()
+            Screen.MESH -> if (meshLook() != meshShown) build()
             // Only the words: the name may be being typed.
             Screen.MARKER -> a.selected?.let { a.markers.get(it) }?.let { (markerShare?.tag as? TextView)?.text = shareDetail(it) }
             Screen.SERVER -> if (!serverBusy) { serverText?.text = serverState(); if (a.remoteNow || !a.reachable) remoteSection(null) }
@@ -159,6 +164,7 @@ class Panels(private val a: MainActivity) {
             Screen.MARKER -> marker()
             Screen.MOVE -> add(a.body("Tap the marker's new location on the map. You can move and zoom the map first.", top = 12))
             Screen.SHARING -> sharing()
+            Screen.MESH -> mesh()
             Screen.PEER -> peer()
             Screen.SERVER -> server()
             Screen.SETTINGS -> settings()
@@ -177,6 +183,8 @@ class Panels(private val a: MainActivity) {
         add(a.row("Offline Areas", if (saved.isEmpty()) "None" else "${saved.size} downloaded · ${bytesText(a.areas.storedBytes())}") { show(Screen.AREAS) })
         add(a.row("Markers", if (a.markers.markers.isEmpty()) "None" else "${a.markers.markers.size}") { show(Screen.MARKERS) })
         add(a.row("Location Sharing", a.sharing.summary()) { show(Screen.SHARING) })
+        add(a.row("Mesh Radio", if (a.prefs.radioAddress == null) "Not Paired" else meshStatus() +
+            MeshRadio.nearby().size.let { if (MeshRadio.status == MeshRadio.Status.READY && it > 0) " · $it node${if (it == 1) "" else "s"} nearby" else "" }) { show(Screen.MESH) })
         add(a.row("Server", a.prefs.server?.let { ServerAddress.short(it) + " · " + boxState() } ?: "Not Configured") { show(Screen.SERVER) })
         add(a.row("Settings", "Coordinate format: ${a.prefs.coordFormat.title}") { show(Screen.SETTINGS) })
         // The one way to end a shared position for good, besides swiping the app away.
@@ -508,6 +516,108 @@ class Panels(private val a: MainActivity) {
     fun peerTick() {
         if (screen == Screen.PEER) peerFill()
         if (screen == Screen.SHARING) sharingFill()
+    }
+
+    /* ---------- mesh radio ---------- */
+
+    // What the Mesh Radio screen was built from: it is built again only when that changed.
+    private var meshShown = ""
+
+    private fun meshLook(): String = with(MeshRadio) {
+        listOf(status, problem, searching, found.keys.joinToString(), state.battery, state.firmware, a.prefs.radioAddress, a.prefs.radioPin,
+            a.prefs.meshChannel?.rev, a.prefs.meshReadOnly, nearby().joinToString { nodeDetail(it) }).joinToString("|")
+    }
+
+    private fun meshStatus(): String = when (MeshRadio.status) {
+        MeshRadio.Status.NONE -> "Not Paired"
+        MeshRadio.Status.OFFLINE -> "Not Connected"
+        MeshRadio.Status.PAIRING -> "Pairing…"
+        MeshRadio.Status.CONNECTING -> "Connecting…"
+        MeshRadio.Status.SETTING_UP -> "Configuring…"
+        MeshRadio.Status.NEEDS_REGION -> "Region Required"
+        MeshRadio.Status.NO_CHANNEL -> "Waiting for Server Channel"
+        MeshRadio.Status.LOCKED -> "Locked"
+        MeshRadio.Status.READY -> "Connected"
+        MeshRadio.Status.FAILED -> "Error"
+    }
+
+    private fun mesh() {
+        meshShown = meshLook()
+        val radio = MeshRadio
+        if (a.prefs.radioAddress == null) {
+            add(a.body("Pair a Meshtastic radio to share locations and markers with the other devices of this server where there is no network. " +
+                "Fieldmap configures the radio for the server's private channel.", muted = true, top = 12))
+            if (radio.problem.isNotEmpty()) add(a.body(radio.problem, top = 8))
+            add(a.button(if (radio.searching) "Searching…" else "Pair Radio", Kind.PRIMARY) { a.searchRadios() }
+                .apply { enable(!radio.searching); layoutParams = lp(top = a.dp(12)) })
+            if (radio.searching || radio.found.isNotEmpty()) {
+                add(a.label("Radios Nearby"))
+                if (radio.found.isEmpty()) add(a.body("Turn the radio on and keep it close to this device.", muted = true))
+                for (f in radio.found.values.sortedByDescending { it.rssi }) add(a.row(f.name, "Signal: ${f.rssi} dBm") { radio.pair(f) })
+            }
+            return
+        }
+        val s = radio.state
+        add(a.row(a.prefs.radioName ?: "Radio", meshStatus(), icon = null))
+        add(a.body(meshExplain(), muted = true, top = 4))
+        if (radio.status == MeshRadio.Status.NEEDS_REGION) {
+            add(a.label("Region"))
+            add(a.body("Choose the region where you use the radio. It sets the frequencies the radio may use.", muted = true))
+            for (r in RadioSetup.regions) add(a.row(r.name, null) { radio.setRegion(r) })
+        }
+        add(a.label("Details"))
+        if (s.model.isNotEmpty()) add(a.row("Model", s.model, icon = null))
+        if (s.firmware.isNotEmpty()) add(a.row("Firmware", s.firmware, icon = null))
+        s.battery?.let { add(a.row("Battery", if (it > 100) "External Power" else "$it %", icon = null)) }
+        if (s.region != org.meshtastic.proto.Config.LoRaConfig.RegionCode.UNSET) add(a.row("Region", s.region.name, icon = null))
+        add(a.row("Channel", a.prefs.meshChannel?.let { "Server channel ${it.name}" } ?: "Not received", icon = null))
+        add(a.label("Public Channel"))
+        val readOnly = a.prefs.meshReadOnly
+        add(a.check("Read Only", if (readOnly) "This radio listens on the public channel and does not announce itself there."
+            else "Other Meshtastic users see this radio under your display name.", readOnly) { radio.setReadOnly(it) })
+        add(a.body("The public channel shows the other Meshtastic radios nearby. They can pass your packets on, but cannot read them. " +
+            "Locations and markers always go on the server's private channel only.", muted = true, top = 4))
+        val nodes = radio.nearby()
+        add(a.label("Nodes Nearby"))
+        if (nodes.isEmpty()) add(a.body(if (radio.status == MeshRadio.Status.READY) "No other radios heard in the last 2 hours." else "Connect to the radio to see the radios nearby.", muted = true))
+        for (n in nodes) add(a.row(n.name, nodeDetail(n), icon = null))
+        if (a.prefs.radioPin != 0) {
+            add(a.row("Bluetooth PIN", "%06d".format(a.prefs.radioPin), icon = null))
+            add(a.body("Fieldmap replaced the radio's factory PIN. Use this PIN to pair the radio again.", muted = true))
+        }
+        val buttons = mutableListOf<View>()
+        if (radio.status == MeshRadio.Status.OFFLINE || radio.status == MeshRadio.Status.FAILED) buttons += a.button("Connect", Kind.PRIMARY) { a.connectRadio() }
+        buttons += a.button("Forget Radio", Kind.DANGER) { confirmForgetRadio() }
+        add(a.buttons(*buttons.toTypedArray()))
+    }
+
+    /** Another radio in a line: how near, how strong, how long ago, on which channel. */
+    private fun nodeDetail(n: MeshNode): String = listOfNotNull(
+        when (n.hops) { null -> null; 0 -> "Direct · SNR ${"%.0f".format(n.snr)} dB"; 1 -> "1 hop"; else -> "${n.hops} hops" },
+        Ageing.text(((System.currentTimeMillis() / 1000) - n.heard).toInt().coerceAtLeast(0)),
+        if (n.channel == RadioSetup.ourIndex(a.prefs.meshReadOnly)) "Fieldmap" else "Public",
+    ).joinToString(" · ")
+
+    private fun meshExplain(): String = when (MeshRadio.status) {
+        MeshRadio.Status.OFFLINE -> if (!MeshRadio.bluetoothOn) "Bluetooth is off. Turn it on to connect to the radio." else "The radio is off or out of range. Fieldmap connects again when it is near."
+        MeshRadio.Status.PAIRING -> "Enter the radio's PIN when Android asks for it. Radios with a screen show the PIN there."
+        MeshRadio.Status.CONNECTING -> "Reading the radio's settings."
+        MeshRadio.Status.SETTING_UP -> "Writing the server's channel to the radio. The radio restarts, then connects again."
+        MeshRadio.Status.NEEDS_REGION -> "The radio has no region yet."
+        MeshRadio.Status.NO_CHANNEL -> "Connect to the server once while Location Sharing is enabled on it. Fieldmap then gets the server's private channel and configures the radio."
+        MeshRadio.Status.LOCKED -> "The radio is locked with a passphrase. Unlock it in the Meshtastic app, then connect again."
+        MeshRadio.Status.READY -> "The radio uses the server's private channel."
+        MeshRadio.Status.FAILED -> MeshRadio.problem
+        MeshRadio.Status.NONE -> ""
+    }
+
+    private fun confirmForgetRadio() {
+        AlertDialog.Builder(a)
+            .setTitle("Forget Radio?")
+            .setMessage("Fieldmap stops using this radio. The radio keeps its settings. To pair it with this device again, remove it in Android's Bluetooth settings first.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Forget") { _, _ -> MeshRadio.forget() }
+            .show()
     }
 
     /* ---------- server ---------- */

@@ -124,6 +124,30 @@ class Prefs(context: Context) {
     /** The channel as it is written down, and as it reads: opened once, not at every look. */
     private var meshOpened: Pair<String, String>? = null
 
+    /** The paired Meshtastic radio (its Bluetooth address and name); null for none. */
+    var radioAddress: String?
+        get() = p.getString("radio.address", null)
+        set(v) = p.edit { if (v == null) remove("radio.address") else putString("radio.address", v) }
+
+    var radioName: String?
+        get() = p.getString("radio.name", null)
+        set(v) = p.edit { if (v == null) remove("radio.name") else putString("radio.name", v) }
+
+    /** The Bluetooth PIN the app gave the radio in place of the factory one; 0 for none. */
+    var radioPin: Int
+        get() = p.getInt("radio.pin", 0)
+        set(v) = p.edit { putInt("radio.pin", v) }
+
+    /** The public mesh channel: only listened to (the default), or the radio also shows itself there. */
+    var meshReadOnly: Boolean
+        get() = p.getBoolean("radio.readOnly", true)
+        set(v) = p.edit { putBoolean("radio.readOnly", v) }
+
+    /** The LoRa region the person chose for a radio that had none (a RegionCode name). */
+    var radioRegion: String?
+        get() = p.getString("radio.region", null)
+        set(v) = p.edit { if (v == null) remove("radio.region") else putString("radio.region", v) }
+
     /** Tells this phone from the others on a box. Made once, at random; not a secret, and it says nothing about the phone. */
     val uid: String
         get() = p.getString("share.uid", null) ?: UUID.randomUUID().toString().also { p.edit { putString("share.uid", it) } }
