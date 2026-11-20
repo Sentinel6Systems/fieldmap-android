@@ -63,7 +63,7 @@ object Drawings {
             "FeatureCollection" -> data.optJSONArray("features")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }
             "Feature" -> listOf(data)
             else -> if (data.has("coordinates")) listOf(JSONObject().put("type", "Feature").put("geometry", data)) else null
-        } ?: throw IllegalArgumentException("This file has no map data. It is not a GeoJSON file.")
+        } ?: throw IllegalArgumentException("This file contains no map data. It isn't a GeoJSON file.")
 
         val markers = ArrayList<Marker>()
         var skipped = 0

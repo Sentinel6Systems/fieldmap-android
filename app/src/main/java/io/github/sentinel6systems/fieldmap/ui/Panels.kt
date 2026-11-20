@@ -157,7 +157,7 @@ class Panels(private val a: MainActivity) {
             Screen.SAVE -> save()
             Screen.MARKERS -> markers()
             Screen.MARKER -> marker()
-            Screen.MOVE -> add(a.body("Tap the new location of the marker on the map. You can move and zoom the map first.", top = 12))
+            Screen.MOVE -> add(a.body("Tap the marker's new location on the map. You can move and zoom the map first.", top = 12))
             Screen.SHARING -> sharing()
             Screen.PEER -> peer()
             Screen.SERVER -> server()
@@ -266,7 +266,7 @@ class Panels(private val a: MainActivity) {
     private fun confirmDelete(area: SavedArea) {
         AlertDialog.Builder(a)
             .setTitle("Delete \"${area.name}\"?")
-            .setMessage("This removes the maps of this area from this device.")
+            .setMessage("The maps for this area will be removed from this device.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Delete") { _, _ -> a.areas.delete(area) }
             .show()
@@ -295,7 +295,7 @@ class Panels(private val a: MainActivity) {
                 depths += this
             }, LinearLayout.LayoutParams(0, a.dp(52), 1f).apply { if (childCount > 0) marginStart = a.dp(6) })
         })
-        add(a.body("14 includes all map detail. A lower level gives a smaller download with less detail.", muted = true, top = 8))
+        add(a.body("Level 14 includes all map detail. Lower levels download faster but show less detail.", muted = true, top = 8))
         estimateText = a.mono("", 15f, muted = false).apply { layoutParams = lp(top = a.dp(14)); minLines = 2 }.also(::add)
         val download = a.button("Download", Kind.PRIMARY) { download() }
         downloadButton = download
@@ -318,7 +318,7 @@ class Panels(private val a: MainActivity) {
         if (style == null || !a.reachable) return say("No connection to the server. You cannot download an area now.", R.color.warn)
         estimateJob = a.scope.launch {
             delay(350)
-            val list = sources.of(style.url) ?: return@launch say("The server did not respond.", R.color.warn)
+            val list = sources.of(style.url) ?: return@launch say("No response from the server.", R.color.warn)
             val box = a.frameBox() ?: return@launch say("Area too large. Zoom in.", R.color.warn)
             val depth = a.prefs.areaZoom
             val tiles = Tiles.count(list, box, depth)
@@ -409,9 +409,9 @@ class Panels(private val a: MainActivity) {
     }
 
     private fun shareDetail(m: Marker): String = when {
-        !m.shared -> "Off. This marker is on this device only."
-        a.sharing.waiting(m.id) -> "The app sends it to the server when connected."
-        else -> "All devices on this server show this marker and can change or delete it. Clear the check to keep it on this device only."
+        !m.shared -> "Off. This marker is only on this device."
+        a.sharing.waiting(m.id) -> "Waiting to sync with the server."
+        else -> "All devices on this server see this marker and can edit or delete it. Uncheck to keep it on this device only."
     }
 
     private fun confirmDeleteShared(id: String) {
@@ -439,7 +439,7 @@ class Panels(private val a: MainActivity) {
             add(a.button("Stop Sharing", Kind.DANGER) { a.sharing.switchOff(); rebuild(Screen.SHARING) }.apply { layoutParams = lp(top = a.dp(12)) })
         } else {
             shareMine = null
-            add(a.body("Off. Other devices on this server see your location with this name. Sharing continues when you leave the app and stops when you exit Fieldmap."))
+            add(a.body("Off. When you share, other devices on this server see your location under this name. Sharing continues in the background and stops when you exit Fieldmap."))
             add(a.label("Display Name"))
             add(name)
             val go = a.button("Start Sharing", Kind.PRIMARY) { a.startSharing(name.text.toString()) }
@@ -572,7 +572,7 @@ class Panels(private val a: MainActivity) {
                 a.netbirdNow -> "Paired. Connected remotely through NetBird VPN."
                 a.remoteNow -> "Paired. Connected remotely."
                 a.reachable -> "Paired. Remote connection available."
-                else -> "Paired, but the server does not respond over the internet. Connect to the server's network once to get its new address."
+                else -> "Paired, but the server can't be reached over the internet. Connect to the server's network once to update its address."
             }, muted = true))
             if (reach.isNotEmpty()) box.addView(a.body("Server status: $reach", muted = true, top = 8))
             box.addView(a.button("Unpair Device", Kind.DANGER) { a.removeRemote(); remoteSection(info) }.apply { layoutParams = lp(top = a.dp(10)) })

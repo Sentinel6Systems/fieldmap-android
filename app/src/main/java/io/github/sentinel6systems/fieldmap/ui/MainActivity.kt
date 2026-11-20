@@ -812,7 +812,7 @@ class MainActivity : AppCompatActivity() {
 
     internal fun saveArea(name: String, style: MapStyle, box: Box, maxZoom: Int) {
         areas.save(name, style, LatLngBounds.from(box.north, box.east, box.south, box.west), maxZoom, resources.displayMetrics.density) {
-            toast("The area was not downloaded. $it")
+            toast("Download failed. $it")
         }
         panels.show(Screen.AREAS)
     }
@@ -1044,7 +1044,7 @@ class MainActivity : AppCompatActivity() {
             contentResolver.openOutputStream(uri)?.use { it.write(markers.toGeoJson().toByteArray()) }
             toast("Markers exported.")
         } catch (e: Exception) {
-            toast("Cannot write the file.")
+            toast("Couldn't save the file.")
         }
     }
 
@@ -1059,12 +1059,12 @@ class MainActivity : AppCompatActivity() {
             toast(
                 "Imported $added marker${if (added == 1) "" else "s"}." +
                     (if (loaded.markers.size > added) " ${loaded.markers.size - added} already on this device." else "") +
-                    (if (loaded.skipped > 0) " ${loaded.skipped} other drawing${if (loaded.skipped == 1) " is" else "s are"} not shown, for example arrows and shapes." else ""),
+                    (if (loaded.skipped > 0) " ${loaded.skipped} arrow${if (loaded.skipped == 1) "" else "s"} or shape${if (loaded.skipped == 1) "" else "s"} skipped; the app shows markers only." else ""),
             )
         } catch (e: IllegalArgumentException) {
-            toast(e.message ?: "Cannot read the file.")
+            toast(e.message ?: "Couldn't read the file.")
         } catch (e: Exception) {
-            toast("Cannot read the file.")
+            toast("Couldn't read the file.")
         }
     }
 

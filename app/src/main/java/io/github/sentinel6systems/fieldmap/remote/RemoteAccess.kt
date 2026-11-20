@@ -123,11 +123,11 @@ object RemoteAccess {
                         return@withContext Enrolment(base, o.optString("id"), o.getString("certificate"), o.getString("ca"),
                             o.optString("gatewayName"), endpointsFrom(o.optJSONArray("endpoints")), netbird = netbirdFrom(o.optJSONObject("netbird")))
                     }
-                    if (r.code != 404) last = Refused(o.optString("error").ifEmpty { "The box did not accept the request (${r.code})." }, o.optBoolean("pin"))
+                    if (r.code != 404) last = Refused(o.optString("error").ifEmpty { "The server rejected the request (${r.code})." }, o.optBoolean("pin"))
                 }
             } catch (e: Exception) { /* try the next place */ }
         }
-        throw last ?: Refused("The server did not respond. Pair the device on the server's network.")
+        throw last ?: Refused("No response from the server. Pair this device while it is on the server's network.")
     }
 
     /**

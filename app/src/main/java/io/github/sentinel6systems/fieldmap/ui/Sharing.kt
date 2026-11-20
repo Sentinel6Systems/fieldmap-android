@@ -259,7 +259,7 @@ class Sharing(private val a: MainActivity) {
                     a.prefs.pending = p.copy(put = p.put - id)
                     a.sharedMarkers(a.markers.markers.map { if (it.id == id) it.copy(shared = false, updated = "", by = "") else it })
                     val why = try { JSONObject(r.body).optString("error") } catch (e: JSONException) { "" }
-                    a.toast("The server did not accept the marker ${m.label.ifEmpty { "Unnamed" }}. The marker stays on this device only." + if (why.isEmpty()) "" else " Server: $why")
+                    a.toast("The server rejected the marker ${m.label.ifEmpty { "Unnamed" }}. It stays on this device only." + if (why.isEmpty()) "" else " Server: $why")
                 }
                 else -> return trouble(r) ?: info.interval * 1000L
             }
@@ -295,15 +295,15 @@ class Sharing(private val a: MainActivity) {
         a.prefs.server == null -> "Location sharing works through a Fieldmap server. First, connect to a server in Menu > Server."
         box == Box.NONE -> "This server does not support location sharing."
         box == Box.OFF -> "Location sharing is disabled on the server. To enable it, open Admin > Devices on the server in a browser."
-        !a.reachable -> "No connection to the server. Shared markers stay on this device. The app sends your changes when the connection is back."
+        !a.reachable -> "No connection to the server. Shared markers are still available, and your changes sync when the connection returns."
         else -> "Devices on this server can see each other's locations and share markers."
     }
 
     /** How it stands with this phone's own position, while sharing it is on. */
     fun mine(): String = when {
-        box == Box.NONE || box == Box.OFF -> "On. The server does not accept locations now."
+        box == Box.NONE || box == Box.OFF -> "On. The server isn't accepting locations right now."
         !a.reachable -> "On. No connection to the server."
-        live -> "On. The others see you as ${a.prefs.shareName}."
+        live -> "On. Others see you as ${a.prefs.shareName}."
         a.fix() == null -> "On. Acquiring GPS…"
         else -> "On. Sending your first location to the server…"
     }
