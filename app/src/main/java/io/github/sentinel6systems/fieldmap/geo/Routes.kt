@@ -32,6 +32,29 @@ object Routes {
         return Arrows.destination(a.first, a.second, bearing, meters / 2)
     }
 
+    /** The point `fraction` (0-1) of the way along a line (lat to lon), by length. */
+    fun along(line: List<Pair<Double, Double>>, fraction: Double): Pair<Double, Double> {
+        if (line.size < 2) return line.first()
+        val legs = legs(line)
+        var left = legs.sumOf { it.meters } * fraction
+        for (leg in legs) {
+            if (left <= leg.meters) return Arrows.destination(line[leg.from].first, line[leg.from].second, leg.bearing, left)
+            left -= leg.meters
+        }
+        return line.last()
+    }
+
+    /** The way a line (lat to lon) goes `fraction` (0-1) of the way along it: the bearing of its piece there. */
+    fun bearingAt(line: List<Pair<Double, Double>>, fraction: Double): Double {
+        val legs = legs(line).filter { it.meters > 0 }
+        var left = legs.sumOf { it.meters } * fraction
+        for (leg in legs) {
+            if (left <= leg.meters) return leg.bearing
+            left -= leg.meters
+        }
+        return legs.lastOrNull()?.bearing ?: 0.0
+    }
+
     /**
      * At most `max` (at least 2) of the points: the first, the last, and in between those that
      * shape the line most (Douglas-Peucker, one point at a time, the farthest off first).

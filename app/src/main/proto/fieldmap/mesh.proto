@@ -53,8 +53,9 @@ message MeshMarker {
   optional sfixed32 end_lon = 10;
 }
 
-// A shared route as it is now: the points tapped for it (each device draws the line through
-// them), and the speed its time is worked out at. The last change wins, by `updated`. Up to 30
+// A shared route as it is now: the points tapped for it (each device draws its legs from them,
+// along roads or trails from its own routing data as `type` says), and the speed its time is
+// worked out at. The last change wins, by `updated`. Up to 30
 // points: the first exactly, the others as steps from the one before, in 1e-5 degrees (about
 // 1 m), two bytes each for steps up to about 9 km.
 message MeshRoute {
@@ -67,6 +68,7 @@ message MeshRoute {
   sfixed32 lon = 7;
   repeated sint32 steps = 8; // then each next point: lat step, lon step (degrees * 1e5)
   uint32 mph = 9;            // its speed (one of the app's choices)
+  uint32 type = 10;          // its legs: 0 straight, 1 driving (roads), 2 walking (roads, tracks, trails)
 }
 
 // A short text message, to one device or to everybody. Sent straight to the radio of the device

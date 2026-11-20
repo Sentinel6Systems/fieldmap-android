@@ -38,8 +38,8 @@ class MarkerStore(private val file: File) {
     }
 
     /** A new route through these points (lat to lon, at least two). */
-    fun addRoute(points: List<Pair<Double, Double>>, color: String): Marker {
-        val m = Marker(newId(), 0.0, 0.0, Drawings.nextName(markers, route = true), color).withPoints(points)
+    fun addRoute(points: List<Pair<Double, Double>>, color: String, type: RouteType = RouteType.STRAIGHT): Marker {
+        val m = Marker(newId(), 0.0, 0.0, Drawings.nextName(markers, route = true), color, route = PlannedRoute(points, type.mph, type)).withPoints(points)
         markers = markers + m
         save()
         return m
@@ -78,8 +78,8 @@ class MarkerStore(private val file: File) {
         return fresh.size
     }
 
-    /** The markers as a file for the print tool and other software. */
-    fun toGeoJson(): String = Drawings.toGeoJson(markers)
+    /** The markers as a file for the print tool and other software; `line`: a route's line as it is drawn. */
+    fun toGeoJson(line: (Marker) -> List<Pair<Double, Double>>? = { null }): String = Drawings.toGeoJson(markers, line = line)
 
     private fun save() {
         val tmp = File(file.parentFile, file.name + ".tmp")

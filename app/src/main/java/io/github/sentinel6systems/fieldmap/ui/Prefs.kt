@@ -158,6 +158,10 @@ class Prefs(context: Context) {
     var routeLegs: Boolean
         get() = p.getBoolean("route.legs", true)
         set(v) = p.edit { putBoolean("route.legs", v) }
+    /** The Route Type new routes start with: the last one chosen. Walking at first. */
+    var routeType: io.github.sentinel6systems.fieldmap.data.RouteType
+        get() = io.github.sentinel6systems.fieldmap.data.RouteType.of(p.getString("route.type", null)) ?: io.github.sentinel6systems.fieldmap.data.RouteType.WALKING
+        set(v) = p.edit { putString("route.type", v.key) }
     var routeLegLabels: Boolean
         get() = p.getBoolean("route.legLabels", true)
         set(v) = p.edit { putBoolean("route.legLabels", v) }

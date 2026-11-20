@@ -8,6 +8,8 @@ import org.maplibre.android.style.layers.PropertyFactory.lineCap
 import kotlin.math.roundToInt
 import io.github.sentinel6systems.fieldmap.geo.Arrows
 import io.github.sentinel6systems.fieldmap.geo.Routes
+import io.github.sentinel6systems.fieldmap.data.PlannedRoute
+import io.github.sentinel6systems.fieldmap.offline.RoutingFiles
 import org.maplibre.android.style.layers.PropertyFactory.iconColor
 import org.maplibre.android.style.layers.PropertyFactory.iconHaloColor
 import org.maplibre.android.style.layers.PropertyFactory.iconHaloWidth
@@ -164,6 +166,10 @@ class MainActivity : AppCompatActivity() {
         private set
     internal lateinit var routes: RouteEditor
         private set
+    internal lateinit var routeLines: RouteLines
+        private set
+    /** The routing files of the offline areas, for routes along roads and trails. */
+    internal val routingFiles by lazy { RoutingFiles(filesDir) }
     internal val scope = MainScope()
     internal var map: MapLibreMap? = null
     private var style: Style? = null
@@ -225,6 +231,9 @@ class MainActivity : AppCompatActivity() {
         sharing = Sharing(this)
         panels = Panels(this)
         routes = RouteEditor(this)
+        routeLines = RouteLines(this)
+        routeLines.onLeg = routes::snapped
+        routingFiles.onChange = { panels.refresh() }
         MeshRadio.init(this)
         MeshRadio.onChange = { panels.refresh(); nodesChanged() }
         Messaging.init(this)
@@ -385,8 +394,12 @@ class MainActivity : AppCompatActivity() {
         fun part(name: String) = Expression.eq(Expression.get("part"), Expression.literal(name))
         add(LineLayer("fm-routes-halo", ROUTES).withProperties(lineColor(Color.WHITE), lineWidth(6f), lineOpacity(0.6f), lineCap(Property.LINE_CAP_ROUND),
             lineJoin(Property.LINE_JOIN_ROUND)).withFilter(part("line")))
+        // A leg not (yet) along a road or trail where its type says it should be: dashed.
+        val dashed = Expression.toBool(Expression.get("dashed"))
         add(LineLayer(ROUTE_LINES, ROUTES).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineCap(Property.LINE_CAP_ROUND),
-            lineJoin(Property.LINE_JOIN_ROUND)).withFilter(part("line")))
+            lineJoin(Property.LINE_JOIN_ROUND)).withFilter(Expression.all(part("line"), Expression.not(dashed))))
+        add(LineLayer(ROUTE_DASHED, ROUTES).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineDasharray(arrayOf(2f, 1.5f)))
+            .withFilter(Expression.all(part("line"), dashed)))
         add(SymbolLayer("fm-routes-way", ROUTES).withProperties(symbolPlacement(Property.SYMBOL_PLACEMENT_LINE), symbolSpacing(70f), iconImage(CHEVRON),
             iconColor(Expression.get("color")), iconHaloColor(Color.WHITE), iconHaloWidth(1.5f), iconAllowOverlap(true), iconIgnorePlacement(true),
             iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP)).withFilter(part("way")))
@@ -627,35 +640,38 @@ class MainActivity : AppCompatActivity() {
         },
     )
 
-    /** A route's length and time at its speed: "4.2 km · 50 min". */
-    internal fun routeDetail(points: List<Pair<Double, Double>>, mph: Int): String =
-        Routes.length(points).let { distanceText(it) + " · " + Routes.timeText(Routes.minutes(it, mph)) }
+    /** A route's length and time at its speed, as its legs are drawn now: "4.2 km · 50 min". */
+    internal fun routeDetail(r: PlannedRoute): String =
+        routeLines.legs(r, ask = false).sumOf { Routes.length(it.line) }.let { distanceText(it) + " · " + Routes.timeText(Routes.minutes(it, r.mph)) }
 
     /**
-     * The routes: line, chevrons, start (with the name), legs' lengths; the points of the chosen
-     * one; and the one being drawn, with the middles of its legs. Each part as the settings say.
+     * The routes: each leg's line (dashed while it is not along the roads or trails its type says),
+     * chevrons, start (with the name), legs' lengths; the points of the chosen one; and the one being
+     * drawn, with the middles of its legs. Each part as the settings say.
      */
     private fun routesOnMap(): FeatureCollection {
-        val drawn = routes.points
+        val drawn = routes.route
         val all = markers.markers.filter { it.isRoute && !(drawn != null && it.id == routes.editing) }
-            .map { Triple(it.id, it.color, it.label) to it.route!!.points }
-            .plus(if (drawn != null) listOf(Triple(DRAWN, routes.editing?.let(markers::get)?.color ?: prefs.color, "") to drawn.toList()) else emptyList())
-        return FeatureCollection.fromFeatures(all.flatMap { (about, points) ->
+            .map { Triple(it.id, it.color, it.label) to it.route!! }
+            .plus(if (drawn != null) listOf(Triple(DRAWN, routes.editing?.let(markers::get)?.color ?: prefs.color, "") to drawn) else emptyList())
+        return FeatureCollection.fromFeatures(all.flatMap { (about, route) ->
             val (id, color, label) = about
+            val points = route.points
             fun part(f: Feature, name: String) = f.apply { addStringProperty("id", id); addStringProperty("color", color); addStringProperty("part", name) }
             fun at(p: Pair<Double, Double>) = Point.fromLngLat(p.second, p.first)
             val out = ArrayList<Feature>()
-            if (points.size >= 2) {
-                val line = LineString.fromLngLats(points.map(::at))
-                out += part(Feature.fromGeometry(line), "line")
+            // While a finger moves a point, legs are not worked out: drawn straight until it is lifted.
+            val legs = routeLines.legs(route, ask = !(id == DRAWN && routes.dragging))
+            for (leg in legs) {
+                val line = LineString.fromLngLats(leg.line.map(::at))
+                out += part(Feature.fromGeometry(line), "line").apply { addBooleanProperty("dashed", leg.state == LegState.NO_WAY || leg.state == LegState.WAITING) }
                 if (prefs.routeDirection) out += part(Feature.fromGeometry(line), "way")
-                if (prefs.routeLegLabels) for (leg in Routes.legs(points)) {
-                    val middle = Routes.middle(points[leg.from], points[leg.from + 1])
-                    out += part(Feature.fromGeometry(at(middle)), "leg").apply {
-                        addStringProperty("label", distanceText(leg.meters))
-                        addNumberProperty("rotate", Arrows.labelAngle(leg.bearing))
-                    }
+                val middle = Routes.along(leg.line, 0.5)
+                if (prefs.routeLegLabels) out += part(Feature.fromGeometry(at(middle)), "leg").apply {
+                    addStringProperty("label", distanceText(Routes.length(leg.line)))
+                    addNumberProperty("rotate", Arrows.labelAngle(Routes.bearingAt(leg.line, 0.5)))
                 }
+                if (id == DRAWN) out += part(Feature.fromGeometry(at(middle)), "middle")
             }
             if (points.isNotEmpty() && id != DRAWN) out += part(Feature.fromGeometry(at(points[0])), "start").apply { addStringProperty("label", label) }
             if (id == DRAWN || id == selected) points.forEachIndexed { i, p ->
@@ -664,14 +680,15 @@ class MainActivity : AppCompatActivity() {
                     addBooleanProperty("chosen", id == DRAWN && i == routes.chosen)
                 }
             }
-            if (id == DRAWN) for (i in 0 until points.size - 1) out += part(Feature.fromGeometry(at(Routes.middle(points[i], points[i + 1]))), "middle")
             out
         })
     }
 
     /** Draws the routes again: one changed, is being drawn, or the settings of what they show changed. */
     internal fun routesChanged() {
+        if (!::routeLines.isInitialized) return
         style?.getSourceAs<GeoJsonSource>(ROUTES)?.setGeoJson(routesOnMap())
+        routeLines.saveSoon()
     }
 
     private fun areasOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
@@ -889,6 +906,7 @@ class MainActivity : AppCompatActivity() {
         updateStatus()
         if (on) {
             if (!viewedRefreshed) { viewedRefreshed = true; areas.refreshViewed() }
+            syncRouting()
             if (pendingStyle == null && shownStyle != currentStyle()?.url) showStyle()
         }
         panels.refresh()
@@ -1078,6 +1096,18 @@ class MainActivity : AppCompatActivity() {
             toast("Download failed. $it")
         }
         panels.show(Screen.AREAS)
+        syncRouting(box)
+    }
+
+    /**
+     * The routing files the offline areas (and `adding`, an area being saved) touch, from the
+     * server: missing ones downloaded, ones no area needs removed. Routes are drawn again when they changed.
+     */
+    internal fun syncRouting(adding: Box? = null) {
+        val home = prefs.server ?: return
+        if (!reachable) return
+        val boxes = areas.list.mapNotNull { it.bounds }.map { Box(it.longitudeWest, it.latitudeSouth, it.longitudeEast, it.latitudeNorth) } + listOfNotNull(adding)
+        scope.launch { if (routingFiles.sync(home, boxes)) routeLines.dataChanged() }
     }
 
     /* ---------- markers ---------- */
@@ -1196,7 +1226,7 @@ class MainActivity : AppCompatActivity() {
         val around = RectF(p.x - reach, p.y - reach, p.x + reach, p.y + reach)
         m.queryRenderedFeatures(around, MARKER_DOTS).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
         m.queryRenderedFeatures(around, ARROW_LINES).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
-        m.queryRenderedFeatures(around, ROUTE_LINES).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
+        m.queryRenderedFeatures(around, ROUTE_LINES, ROUTE_DASHED).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
         m.queryRenderedFeatures(around, PEER_SYMBOLS).firstOrNull()?.getStringProperty("id")?.let { openPeer(it, fromList = false); return true }
         m.queryRenderedFeatures(around, NODE_SYMBOLS).firstOrNull()?.getNumberProperty("num")?.let { openNode(it.toInt(), fromList = false); return true }
         return false
@@ -1377,7 +1407,7 @@ class MainActivity : AppCompatActivity() {
     private val saveFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/geo+json")) { uri ->
         if (uri == null) return@registerForActivityResult
         try {
-            contentResolver.openOutputStream(uri)?.use { it.write(markers.toGeoJson().toByteArray()) }
+            contentResolver.openOutputStream(uri)?.use { it.write(markers.toGeoJson { m -> m.route?.let(routeLines::line) }.toByteArray()) }
             toast("Markers exported.")
         } catch (e: Exception) {
             toast("Couldn't save the file.")
@@ -1658,6 +1688,7 @@ class MainActivity : AppCompatActivity() {
         const val DRAG = "fm-drag"
         const val ROUTES = "fm-routes"
         const val ROUTE_LINES = "fm-routes-line"
+        const val ROUTE_DASHED = "fm-routes-dashed"
         const val CHEVRON = "fm-chevron"
         /** The id on the map of the route being drawn. */
         const val DRAWN = "fm-drawn"

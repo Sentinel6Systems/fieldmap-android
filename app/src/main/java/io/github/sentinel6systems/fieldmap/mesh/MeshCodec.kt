@@ -10,6 +10,7 @@ import io.github.sentinel6systems.fieldmap.mesh.proto.MeshMessage
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshPosition
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshRoute
 import io.github.sentinel6systems.fieldmap.data.PlannedRoute
+import io.github.sentinel6systems.fieldmap.data.RouteType
 import io.github.sentinel6systems.fieldmap.geo.Routes
 import io.github.sentinel6systems.fieldmap.mesh.proto.MeshText
 import io.github.sentinel6systems.fieldmap.share.Fix
@@ -79,10 +80,13 @@ object MeshCodec {
         fun encode(label: String) = MeshMessage.ADAPTER.encode(MeshMessage(route = MeshRoute(
             id = m.id, label = label, color = rgb(m.color), updated = (ShareJson.millis(m.updated) / 1000).toInt(),
             by_ = if (m.by.isEmpty()) ByteString.EMPTY else uidBytes(m.by),
-            lat = degrees(r.points[0].first), lon = degrees(r.points[0].second), steps = steps, mph = r.mph,
+            lat = degrees(r.points[0].first), lon = degrees(r.points[0].second), steps = steps, mph = r.mph, type = TYPES.indexOf(r.type),
         )))
         return encode(m.label).takeIf { it.size <= MAX_PAYLOAD } ?: encode("").takeIf { it.size <= MAX_PAYLOAD }
     }
+
+    /** A route's type as a number on the mesh: its place here (a number not known here: straight). */
+    private val TYPES = listOf(RouteType.STRAIGHT, RouteType.DRIVING, RouteType.WALKING)
 
     /** Degrees * 1e5, as a route's steps count them. */
     private fun fine(v: Double) = Math.round(v * 1e5).toInt()
@@ -139,7 +143,7 @@ object MeshCodec {
         val mph = r.mph.takeIf { it in Routes.SPEEDS } ?: Routes.DEFAULT_MPH
         val m = Marker(r.id, 0.0, 0.0, r.label.filterNot { it.isISOControl() }.trim().take(Drawings.MAX_LABEL),
             "#%06x".format(r.color and 0xffffff), shared = true, updated = at, by = uidText(r.by_).orEmpty(),
-            route = PlannedRoute(listOf(0.0 to 0.0), mph)).withPoints(points)
+            route = PlannedRoute(listOf(0.0 to 0.0), mph, TYPES.getOrNull(r.type) ?: RouteType.STRAIGHT)).withPoints(points)
         return MeshMarkerChange(r.id, m, at)
     }
 

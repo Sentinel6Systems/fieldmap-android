@@ -21,6 +21,8 @@ import io.github.sentinel6systems.fieldmap.data.Message
 import io.github.sentinel6systems.fieldmap.data.MessageRoute
 import io.github.sentinel6systems.fieldmap.data.MessageStatus
 import io.github.sentinel6systems.fieldmap.data.Palette
+import io.github.sentinel6systems.fieldmap.data.PlannedRoute
+import io.github.sentinel6systems.fieldmap.data.RouteType
 import io.github.sentinel6systems.fieldmap.geo.CoordFormat
 import io.github.sentinel6systems.fieldmap.geo.Coords
 import io.github.sentinel6systems.fieldmap.geo.Routes
@@ -195,8 +197,11 @@ class Panels(private val a: MainActivity) {
             Screen.NODE -> if (nodeLook() != nodeShown) build()
             Screen.MESSAGES -> build()
             Screen.CHAT -> chatFill()
-            // Only the words: the name may be being typed.
-            Screen.MARKER -> a.selected?.let { a.markers.get(it) }?.let { (markerShare?.tag as? TextView)?.text = shareDetail(it) }
+            // Only the words: the name may be being typed. A route's panel is drawn again when its legs were worked out.
+            Screen.MARKER -> a.selected?.let { a.markers.get(it) }?.let { m ->
+                if (m.route != null && routeLook(m.route) != routeShown) build() else (markerShare?.tag as? TextView)?.text = shareDetail(m)
+            }
+            Screen.ROUTE -> a.routes.route?.let { if (routeLook(it) != routeShown) build() }
             Screen.SERVER -> if (!serverBusy) { serverText?.text = serverState(); if (a.remoteNow || !a.reachable) remoteSection(null) }
             else -> {}
         }
@@ -311,6 +316,10 @@ class Panels(private val a: MainActivity) {
         }
         add(a.label("Downloaded Areas"))
         for (area in a.areas.list) add(areaCard(area))
+        // The routing files that come with the areas, for routes along roads and trails.
+        val routing = a.routingFiles
+        add(a.row("Routing Data", routing.downloading?.let { "Downloading ${it.removeSuffix(".rd5")} · ${routing.percent}%" }
+            ?: routing.stored().let { if (it.isEmpty()) "None" else "${it.size} file${if (it.size == 1) "" else "s"} · ${bytesText(routing.storedBytes())}" }, icon = null))
         add(a.label("Updates"))
         add(a.body("When the server has new maps, update your offline areas. The app downloads all areas again.", muted = true))
         add(a.button("Update All") { confirmUpdate() }.apply { layoutParams = lp(top = a.dp(10)); enable(a.reachable && a.areas.downloading == null) })
@@ -347,7 +356,7 @@ class Panels(private val a: MainActivity) {
             .setTitle("Delete \"${area.name}\"?")
             .setMessage("The maps for this area will be removed from this device.")
             .setNegativeButton("Cancel", null)
-            .setPositiveButton("Delete") { _, _ -> a.areas.delete(area) }
+            .setPositiveButton("Delete") { _, _ -> a.areas.delete(area); a.syncRouting() }
             .show()
     }
 
@@ -403,9 +412,12 @@ class Panels(private val a: MainActivity) {
             val tiles = Tiles.count(list, box, depth)
             if (tiles > Areas.MAX_TILES) return@launch say("Area too large (${number(tiles)} tiles). Lower the detail level or zoom in.", R.color.warn)
             say("${number(tiles)} tiles. Calculating size…")
-            val bytes = Estimate.bytes(list, box, depth)
+            // With the routing files the area touches that are not on the device yet.
+            val routing = a.routingFiles.bytesFor(box)
+            val bytes = Estimate.bytes(list, box, depth) + routing
             val free = a.filesDir.usableSpace
-            val line = "Size: about ${bytesText(bytes)} · ${number(tiles)} tiles\nFree space: ${bytesText(free)}"
+            val line = "Size: about ${bytesText(bytes)} · ${number(tiles)} tiles" + (if (routing > 0) " · routing data ${bytesText(routing)}" else "") +
+                "\nFree space: ${bytesText(free)}"
             when {
                 bytes > free - Areas.KEEP_FREE_BYTES -> say("$line\nNot enough free space. Select a smaller area.", R.color.warn)
                 bytes > Areas.LARGE_BYTES -> say("$line\nLarge download. Use Wi-Fi.", R.color.amber, ok = true)
@@ -430,7 +442,7 @@ class Panels(private val a: MainActivity) {
             "keep holding and drag to where it points. To add a marker at your location, touch and hold the blue dot.", muted = true, top = 12))
         for (m in list.asReversed()) {
             val where = when {
-                m.route != null -> "Route · " + a.distanceText(Routes.length(m.route.points)) + " · ${m.route.points.size} points"
+                m.route != null -> "Route · " + a.distanceText(a.routeLines.legs(m.route).sumOf { Routes.length(it.line) }) + " · ${m.route.points.size} points"
                 m.isArrow -> "Arrow · " + a.arrowDetail(m)
                 else -> a.coords(m.lat, m.lon, brief = true)
             }
@@ -469,17 +481,26 @@ class Panels(private val a: MainActivity) {
         mark(m.color)
 
         if (m.route != null) {
-            // A route: how long and how long it takes at its speed, each leg, then where it starts and ends (as the settings say).
+            // A route: how its legs go, how long and how long it takes at its speed, each leg, then where
+            // it starts and ends (as the settings say).
             val points = m.route.points
+            routeShown = routeLook(m.route)
+            add(a.label("Route Type"))
+            add(a.mono(m.route.type.title, 16f, muted = false))
+            routeNote(m.route)?.let { add(a.body(it, muted = true, top = 6)) }
             if (a.prefs.routeTotals) {
                 add(a.label("Distance and Time"))
-                add(a.mono(a.routeDetail(points, m.route.mph), 18f, muted = false))
+                add(a.mono(a.routeDetail(m.route), 18f, muted = false))
                 add(a.row("Speed", a.speedText(m.route.mph)) { chooseSpeed(m.id) })
             }
             if (a.prefs.routeLegs) {
                 add(a.label("Legs"))
-                for (leg in Routes.legs(points)) add(a.mono("${leg.from + 1} → ${leg.from + 2}   " + a.distanceText(leg.meters) + " · " + Routes.bearingText(leg.bearing), 15f, muted = false)
-                    .apply { setPadding(0, a.dp(3), 0, a.dp(3)) })
+                // Each leg's length as it is drawn (along the road when it follows one), and the true bearing from point to point.
+                for ((i, leg) in a.routeLines.legs(m.route).withIndex()) {
+                    val bearing = Routes.legs(listOf(points[i], points[i + 1])).first().bearing
+                    add(a.mono("${i + 1} → ${i + 2}   " + a.distanceText(Routes.length(leg.line)) + " · " + Routes.bearingText(bearing), 15f, muted = false)
+                        .apply { setPadding(0, a.dp(3), 0, a.dp(3)) })
+                }
             }
             add(a.label("Start"))
             add(a.mono(a.coords(points.first().first, points.first().second), 16f, muted = false))
@@ -538,23 +559,56 @@ class Panels(private val a: MainActivity) {
             .show()
     }
 
-    /** New Route and Edit Route: how it works, how far, and Undo, Remove Point, Done. */
+    /** New Route and Edit Route: how it works, its Route Type, how far, and Undo, Remove Point, Done. */
     private fun route() {
-        val points = a.routes.points ?: return
+        val route = a.routes.route ?: return
+        val points = route.points
+        routeShown = routeLook(route)
         add(a.body("Tap the map to add a point. Drag a point to move it. Drag the dot between two points to add a point there. " +
             "Tap a point to select it.", muted = true, top = 12))
+        add(a.row("Route Type", route.type.title) { chooseType() }.apply { layoutParams = lp(top = a.dp(6)) })
+        val mph = a.routes.editing?.let { a.markers.get(it) }?.route?.mph ?: route.type.mph
         val summary = when (points.size) {
             0 -> "No points"
             1 -> "1 point"
-            else -> "${points.size} points · " + a.routeDetail(points, a.routes.editing?.let { a.markers.get(it) }?.route?.mph ?: Routes.DEFAULT_MPH)
+            else -> "${points.size} points · " + a.routeDetail(route.copy(mph = mph))
         } + (a.routes.chosen?.let { " · Point ${it + 1} selected" } ?: "")
         add(a.mono(summary, 15f, muted = false).apply { setPadding(0, a.dp(10), 0, 0) })
+        routeNote(route)?.let { add(a.body(it, muted = true, top = 6)) }
         add(a.buttons(
             a.button("Undo") { a.routes.undo() }.apply { enable(a.routes.canUndo) },
             a.button("Remove Point") { a.routes.removeChosen() }.apply { enable(a.routes.chosen != null) },
             top = 14,
         ))
         add(a.button("Done", Kind.PRIMARY) { a.routes.finish() }.apply { layoutParams = lp(top = a.dp(10)); enable(points.size >= 2) })
+    }
+
+    /** How a route stands, to draw its panel again when that changes (a leg was worked out). */
+    private var routeShown = ""
+    private fun routeLook(r: PlannedRoute) = r.toString() + a.routeLines.legs(r, ask = false).joinToString { "${it.state}${it.line.size}" }
+
+    /** What to say when a route's legs do not (yet) follow roads or trails as its type says; null when they do. */
+    private fun routeNote(r: PlannedRoute): String? {
+        val states = a.routeLines.legs(r).map { it.state }
+        return when {
+            LegState.NO_WAY in states -> "Dashed legs are straight: no way was found there, or this device has no routing data for the area. " +
+                "To get it, download an offline area there while connected to the server."
+            LegState.WAITING in states -> "Finding the way…"
+            else -> null
+        }
+    }
+
+    /** Driving, Walking or Straight Line, for the route being drawn. */
+    private fun chooseType() {
+        val types = RouteType.entries
+        AlertDialog.Builder(a)
+            .setTitle("Route Type")
+            .setSingleChoiceItems(types.map { it.title }.toTypedArray(), types.indexOf(a.routes.type)) { dialog, i ->
+                dialog.dismiss()
+                a.routes.changeType(types[i])
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /** "marker", "arrow" or "route", for the words about one. */

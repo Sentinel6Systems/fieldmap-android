@@ -32,11 +32,27 @@ data class Marker(
 }
 
 /**
- * A planned route: the points tapped for it, in order (lat to lon), each leg straight from one to
- * the next. At most Drawings.MAX_ROUTE_POINTS of them. `mph`: the speed its time is worked out at
- * (one of Routes.SPEEDS).
+ * A planned route: the points tapped for it, in order (lat to lon), at most
+ * Drawings.MAX_ROUTE_POINTS. `type`: how its legs go from one point to the next, along roads,
+ * along trails or straight; each device draws them from its own routing data (ui/RouteLines.kt),
+ * so only the points travel. `mph`: the speed its time is worked out at (one of Routes.SPEEDS).
  */
-data class PlannedRoute(val points: List<Pair<Double, Double>>, val mph: Int = Routes.DEFAULT_MPH)
+data class PlannedRoute(val points: List<Pair<Double, Double>>, val mph: Int = Routes.DEFAULT_MPH, val type: RouteType = RouteType.STRAIGHT)
+
+/**
+ * How a route's legs go: by road (BRouter's car profile), on foot by roads, tracks and trails (its
+ * hiking profile), or straight. `key`: in files, `profile`: BRouter's profile, `mph`: the speed a
+ * new route of the type starts with.
+ */
+enum class RouteType(val key: String, val title: String, val profile: String?, val mph: Int) {
+    DRIVING("driving", "Driving", "car-vario", 25),
+    WALKING("walking", "Walking", "hiking-mountain", 2),
+    STRAIGHT("straight", "Straight Line", null, 2);
+
+    companion object {
+        fun of(key: String?): RouteType? = entries.firstOrNull { it.key == key }
+    }
+}
 
 /**
  * Markers to and from the drawings file of fieldmap-server's print tool (print/src/drawings.js):
@@ -55,8 +71,9 @@ object Drawings {
     /**
      * One marker as a GeoJSON feature. sharing: also what belongs to a shared marker (the app's
      * own file and the box get it; a file for the print tool or other software does not).
+     * line: a route's line as it is drawn (for other software); without it, its points.
      */
-    fun feature(m: Marker, sharing: Boolean = false): JSONObject {
+    fun feature(m: Marker, sharing: Boolean = false, line: List<Pair<Double, Double>>? = null): JSONObject {
         val kind = when { m.isRoute -> "route"; m.isArrow -> "arrow"; else -> "marker" }
         val fieldmap = JSONObject().put("kind", kind).put("label", m.label).put("color", m.color).put("id", m.id)
         val properties = JSONObject().put("name", m.label).put("stroke", m.color).put("marker-color", m.color).put("fieldmap", fieldmap)
@@ -70,8 +87,8 @@ object Drawings {
         // be edited again when its line no longer goes straight from point to point.
         val geometry = when {
             m.route != null -> {
-                fieldmap.put("waypoints", positions(m.route.points)).put("speedMph", m.route.mph)
-                JSONObject().put("type", "LineString").put("coordinates", positions(m.route.points))
+                fieldmap.put("waypoints", positions(m.route.points)).put("speedMph", m.route.mph).put("routing", m.route.type.key)
+                JSONObject().put("type", "LineString").put("coordinates", positions(line?.takeIf { it.size >= 2 } ?: m.route.points))
             }
             m.isArrow -> JSONObject().put("type", "LineString").put("coordinates", positions(listOf(m.lat to m.lon, m.endLat!! to m.endLon!!)))
             else -> JSONObject().put("type", "Point").put("coordinates", JSONArray().put(m.lon).put(m.lat))
@@ -79,9 +96,9 @@ object Drawings {
         return JSONObject().put("type", "Feature").put("geometry", geometry).put("properties", properties)
     }
 
-    fun toGeoJson(markers: List<Marker>, sharing: Boolean = false): String {
+    fun toGeoJson(markers: List<Marker>, sharing: Boolean = false, line: (Marker) -> List<Pair<Double, Double>>? = { null }): String {
         val features = JSONArray()
-        for (m in markers) features.put(feature(m, sharing))
+        for (m in markers) features.put(feature(m, sharing, line(m)))
         return JSONObject().put("type", "FeatureCollection")
             .put("fieldmap", JSONObject().put("format", FORMAT).put("version", 1))
             .put("features", features).toString()
@@ -163,7 +180,8 @@ object Drawings {
         val points = (if (route) points(fm?.optJSONArray("waypoints"))?.takeIf { it.size >= 2 } else null) ?: line
         if (!route && points.size == 2) return Marker("", points[0].first, points[0].second, "", "", endLat = points[1].first, endLon = points[1].second)
         val mph = fm?.optInt("speedMph")?.takeIf { it in Routes.SPEEDS } ?: Routes.DEFAULT_MPH
-        return Marker("", 0.0, 0.0, "", "", route = PlannedRoute(listOf(0.0 to 0.0), mph)).withPoints(Routes.simplify(points, MAX_ROUTE_POINTS))
+        val type = RouteType.of(fm?.optString("routing")) ?: RouteType.STRAIGHT
+        return Marker("", 0.0, 0.0, "", "", route = PlannedRoute(listOf(0.0 to 0.0), mph, type)).withPoints(Routes.simplify(points, MAX_ROUTE_POINTS))
     }
 
     /** The name the next new marker gets: P1, P2, ... (the first number not yet used); A1, A2, ... for an arrow, R1, R2, ... for a route. */

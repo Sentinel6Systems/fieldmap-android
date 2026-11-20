@@ -5,6 +5,9 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import androidx.appcompat.app.AlertDialog
 import io.github.sentinel6systems.fieldmap.data.Drawings
+import io.github.sentinel6systems.fieldmap.data.PlannedRoute
+import io.github.sentinel6systems.fieldmap.data.RouteType
+import io.github.sentinel6systems.fieldmap.geo.Arrows
 import io.github.sentinel6systems.fieldmap.geo.Routes
 import org.maplibre.android.geometry.LatLng
 import kotlin.math.hypot
@@ -13,7 +16,9 @@ import kotlin.math.hypot
  * New Route and Edit Route: the one way to draw a route and to change its points. While it is
  * open, a tap on the map adds a point at the end; a point dragged moves; the dot in the middle
  * of a leg dragged (or tapped) adds a point there; a point tapped is chosen, for Remove Point.
- * Undo takes back the last change, Done keeps the route, Back leaves it as it was.
+ * Undo takes back the last change, Done keeps the route, Back leaves it as it was. Its Route
+ * Type says how the legs go; along roads or trails a point moves onto the road or trail nearest
+ * it once its leg is worked out ("snap to road").
  */
 class RouteEditor(private val a: MainActivity) {
     /** The route's points while it is drawn (lat to lon); null when no route is being drawn. */
@@ -25,7 +30,15 @@ class RouteEditor(private val a: MainActivity) {
     /** The chosen point (its index), for Remove Point. */
     var chosen: Int? = null
         private set
-    private val history = ArrayList<Pair<List<Pair<Double, Double>>, Int?>>()
+    var type = RouteType.STRAIGHT
+        private set
+    private class Step(val points: List<Pair<Double, Double>>, val chosen: Int?, val type: RouteType)
+    private val history = ArrayList<Step>()
+
+    /** The route as it is drawn now. */
+    val route get() = points?.let { PlannedRoute(it.toList(), type = type) }
+    /** A finger moves a point: its legs are not worked out until it is lifted. */
+    val dragging get() = drag?.moved == true
 
     val active get() = points != null
     val canUndo get() = history.isNotEmpty()
@@ -36,6 +49,7 @@ class RouteEditor(private val a: MainActivity) {
         val route = id?.let { a.markers.get(it) }?.route
         if (id != null && route == null) return
         points = route?.points.orEmpty().toMutableList()
+        type = route?.type ?: a.prefs.routeType
         editing = id
         chosen = null
         history.clear()
@@ -69,10 +83,36 @@ class RouteEditor(private val a: MainActivity) {
 
     fun undo() {
         val list = points ?: return
-        val (before, was) = history.removeLastOrNull() ?: return
+        val step = history.removeLastOrNull() ?: return
         list.clear()
-        list += before
-        chosen = was?.takeIf { it < list.size }
+        list += step.points
+        chosen = step.chosen?.takeIf { it < list.size }
+        type = step.type
+        changedNow()
+    }
+
+    /** Another Route Type; new routes start with the last one used. */
+    fun changeType(to: RouteType) {
+        if (points == null || to == type) return
+        remember()
+        type = to
+        a.prefs.routeType = to
+        changedNow()
+    }
+
+    /**
+     * A leg was worked out: its ends move onto the road or trail (if they are still where they were,
+     * and by more than half a meter). The leg's line is then the line between them too.
+     */
+    fun snapped(p: Pair<Double, Double>, q: Pair<Double, Double>, legType: RouteType, line: List<Pair<Double, Double>>?) {
+        val list = points ?: return
+        if (line == null || legType != type || drag != null) return
+        val i = (0 until list.size - 1).firstOrNull { list[it] == p && list[it + 1] == q } ?: return
+        fun far(x: Pair<Double, Double>, y: Pair<Double, Double>) = Arrows.inverse(x.first, x.second, y.first, y.second).first > 0.5
+        if (!far(p, line.first()) && !far(q, line.last())) return
+        list[i] = line.first()
+        list[i + 1] = line.last()
+        a.routeLines.alias(type, line.first(), line.last(), line)
         changedNow()
     }
 
@@ -81,12 +121,13 @@ class RouteEditor(private val a: MainActivity) {
         val list = points?.toList()?.takeIf { it.size >= 2 } ?: return
         val id = editing
         close()
+        val type = type
         if (id == null) {
-            val m = a.markers.addRoute(list, a.prefs.color)
+            val m = a.markers.addRoute(list, a.prefs.color, type)
             a.markersChanged()
             a.openMarker(m.id, fromList = true)
         } else {
-            a.markers.get(id)?.let { a.updateMarker(it.withPoints(list)) }
+            a.markers.get(id)?.let { m -> m.route?.let { a.updateMarker(m.copy(route = it.copy(type = type)).withPoints(list)) } }
             a.panels.show(Screen.MARKER)
         }
     }
@@ -111,7 +152,7 @@ class RouteEditor(private val a: MainActivity) {
     }
 
     private fun remember() {
-        points?.let { history += it.toList() to chosen }
+        points?.let { history += Step(it.toList(), chosen, type) }
     }
 
     private fun changedNow() {
@@ -165,7 +206,7 @@ class RouteEditor(private val a: MainActivity) {
                     if (d.middle) {
                         if (list.size >= Drawings.MAX_ROUTE_POINTS) { a.toast("A route has at most ${Drawings.MAX_ROUTE_POINTS} points."); return true }
                         remember()
-                        list.add(d.index + 1, Routes.middle(list[d.index], list[d.index + 1]))
+                        list.add(d.index + 1, middleOf(d.index))
                         chosen = null
                     } else {
                         chosen = if (chosen == d.index) null else d.index
@@ -190,8 +231,13 @@ class RouteEditor(private val a: MainActivity) {
         fun far(p: Pair<Double, Double>) = projection.toScreenLocation(LatLng(p.first, p.second)).let { hypot(it.x - x, it.y - y) }
         val point = list.indices.minByOrNull { far(list[it]) }?.takeIf { far(list[it]) < a.dp(26) }
         if (point != null) return Drag(false, point, x, y)
-        val middle = (0 until list.size - 1).minByOrNull { far(Routes.middle(list[it], list[it + 1])) }
-            ?.takeIf { far(Routes.middle(list[it], list[it + 1])) < a.dp(22) }
+        val middle = (0 until list.size - 1).minByOrNull { far(middleOf(it)) }?.takeIf { far(middleOf(it)) < a.dp(22) }
         return middle?.let { Drag(true, it, x, y) }
+    }
+
+    /** The middle of leg i as it is drawn (along the road when it follows one). */
+    fun middleOf(i: Int): Pair<Double, Double> {
+        val legs = route?.let { a.routeLines.legs(it, ask = false) } ?: return 0.0 to 0.0
+        return Routes.along(legs[i].line, 0.5)
     }
 }

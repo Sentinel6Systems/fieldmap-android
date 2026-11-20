@@ -40,11 +40,12 @@ object ShareClient {
      * Where a box answers about sharing: beside the maps on the web port, as its remote access
      * does (/mapremote/). A base on the tile server's own port has the web front on the usual one.
      * The first is under the home address itself, the only one that also works from outside.
+     * `path`: another service at the origin (the routing files: "routing/").
      */
-    fun bases(home: String): List<String> {
+    fun bases(home: String, path: String = "mapshare/"): List<String> {
         val url = home.toHttpUrlOrNull() ?: return emptyList()
         val origin = "${url.scheme}://${url.host}"
-        return listOf(if (url.port == HttpUrl.defaultPort(url.scheme)) origin else "$origin:${url.port}", origin).distinct().map { "$it/mapshare/" }
+        return listOf(if (url.port == HttpUrl.defaultPort(url.scheme)) origin else "$origin:${url.port}", origin).distinct().map { "$it/$path" }
     }
 
     suspend fun get(url: String): Answer = ask(url) {}

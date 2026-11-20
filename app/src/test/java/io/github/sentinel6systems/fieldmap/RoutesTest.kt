@@ -208,4 +208,28 @@ class RoutesTest {
         assertEquals(setOf(mine.id), merged.pending.put)
         assertEquals(listOf(2, 1, 0), listOf(mine.rank, arrow.rank, arrow.copy(endLat = null, endLon = null).rank))
     }
+
+    /* ---------- route types ---------- */
+
+    @Test fun aRoutesTypeGoesWithItInFilesAndOverTheMesh() {
+        val walking = shared.copy(route = shared.route!!.copy(type = io.github.sentinel6systems.fieldmap.data.RouteType.WALKING))
+        assertEquals(listOf(walking), Drawings.fromGeoJson(Drawings.toGeoJson(listOf(walking), sharing = true), "#000000", ::id).markers)
+        assertEquals("walking", JSONObject(ShareJson.marker(walking)).getJSONObject("properties").getJSONObject("fieldmap").getString("routing"))
+        val back = MeshCodec.change(MeshCodec.decode(MeshCodec.marker(walking)!!)!!.route!!)!!.marker!!
+        assertEquals(io.github.sentinel6systems.fieldmap.data.RouteType.WALKING, back.route!!.type)
+        // A route from before route types, or of a type not known here: straight.
+        assertEquals(io.github.sentinel6systems.fieldmap.data.RouteType.STRAIGHT, route.route!!.type)
+        val r = MeshCodec.decode(MeshCodec.marker(walking)!!)!!.route!!
+        assertEquals(io.github.sentinel6systems.fieldmap.data.RouteType.STRAIGHT, MeshCodec.change(r.copy(type = 9))!!.marker!!.route!!.type)
+    }
+
+    @Test fun aFileGetsTheLineAsItIsDrawnTheServerOnlyThePoints() {
+        val line = listOf(48.0 to -122.0, 48.005 to -122.001, 48.01 to -122.0, 48.01 to -121.99)
+        val file = JSONObject(Drawings.toGeoJson(listOf(route)) { line }).getJSONArray("features").getJSONObject(0)
+        assertEquals(4, file.getJSONObject("geometry").getJSONArray("coordinates").length())
+        assertEquals(3, file.getJSONObject("properties").getJSONObject("fieldmap").getJSONArray("waypoints").length())
+        // Read back: the points, not the line.
+        assertEquals(points, Drawings.fromGeoJson(file.toString(), "#000000", ::id).markers.single().route!!.points)
+        assertEquals(3, JSONObject(ShareJson.marker(shared)).getJSONObject("geometry").getJSONArray("coordinates").length())
+    }
 }

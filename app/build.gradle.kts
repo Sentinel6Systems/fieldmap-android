@@ -114,6 +114,63 @@ wire {
 }
 tasks.matching { it.name.startsWith("generate") && it.name.endsWith("Protos") }.configureEach { dependsOn(meshtasticUnpack) }
 
+// Routes that follow roads and trails (geo/Router.kt): the BRouter engine (MIT), its Java sources
+// at the release pinned here and checked against its SHA-256, compiled with the app; and its car
+// and hiking profiles, as assets. The repository holds none of BRouter's files. See README, "Build".
+val brouterVersion = "1.7.10"
+val brouterSha256 = "cb83f220332de8223476e029a9b075157fb74401c69a991ceaa013486c29760f"
+val brouterModules = listOf("brouter-core", "brouter-util", "brouter-expressions", "brouter-codec", "brouter-mapaccess")
+val brouterProfiles = listOf("lookups.dat", "car-vario.brf", "hiking-mountain.brf")
+val brouterArchive = layout.buildDirectory.file("brouter/brouter-$brouterVersion.tar.gz")
+val brouterGet = tasks.register("brouterGet") {
+    val archive = brouterArchive
+    outputs.file(archive)
+    doLast {
+        val file = archive.get().asFile
+        fun sha256(f: File) = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+        if (file.isFile && sha256(file) == brouterSha256) return@doLast
+        file.parentFile.mkdirs()
+        uri("https://github.com/abrensch/brouter/archive/refs/tags/v$brouterVersion.tar.gz").toURL().openStream().use { input ->
+            file.outputStream().use { input.copyTo(it) }
+        }
+        val got = sha256(file)
+        if (got != brouterSha256) {
+            file.delete()
+            throw GradleException("BRouter v$brouterVersion: SHA-256 is $got, expected $brouterSha256")
+        }
+    }
+}
+val brouterJava = layout.buildDirectory.dir("brouter/java")
+val brouterUnpack = tasks.register<Sync>("brouterUnpack") {
+    dependsOn(brouterGet)
+    from(tarTree(resources.gzip(brouterArchive))) {
+        include(brouterModules.map { "*/$it/src/main/java/**" })
+        eachFile { path = path.substringAfter("/src/main/java/") }
+    }
+    // The licence goes with the code, and into the APK with the profiles.
+    from(tarTree(resources.gzip(brouterArchive))) {
+        include("*/LICENSE")
+        eachFile { path = "btools/LICENSE" }
+    }
+    includeEmptyDirs = false
+    into(brouterJava)
+}
+val brouterAssets = layout.buildDirectory.dir("brouter/assets")
+val brouterAssetsUnpack = tasks.register<Sync>("brouterAssets") {
+    dependsOn(brouterGet)
+    from(tarTree(resources.gzip(brouterArchive))) {
+        include(brouterProfiles.map { "*/misc/profiles2/$it" } + "*/LICENSE")
+        eachFile { path = "brouter/" + if (name == "LICENSE") "LICENSE.txt" else name }
+    }
+    includeEmptyDirs = false
+    into(brouterAssets)
+}
+android.sourceSets.getByName("main") {
+    java.srcDir(brouterJava)
+    assets.srcDir(brouterAssets)
+}
+tasks.named("preBuild") { dependsOn(brouterUnpack, brouterAssetsUnpack) }
+
 dependencies {
     implementation(files("libs/nblink.aar").builtBy(nblink))
     implementation("org.maplibre.gl:android-sdk:13.7.1")
