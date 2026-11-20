@@ -23,6 +23,7 @@ import org.meshtastic.proto.Data
 import org.meshtastic.proto.FromRadio
 import org.meshtastic.proto.MeshPacket
 import org.meshtastic.proto.PortNum
+import org.meshtastic.proto.RouteDiscovery
 import org.meshtastic.proto.Routing
 import org.meshtastic.proto.ToRadio
 import kotlin.random.Random
@@ -157,6 +158,40 @@ object MeshRadio {
         setUp()
     }
 
+    /** A trace route asked for (by node number): Waiting, or what came back; and when it was asked. */
+    sealed class Tracing(val at: Long) {
+        class Waiting(at: Long) : Tracing(at)
+        class Done(at: Long, val trace: Trace) : Tracing(at)
+        class NoAnswer(at: Long) : Tracing(at)
+    }
+
+    val traces = HashMap<Int, Tracing>()
+    private val tracePackets = HashMap<Int, Int>()          // packet id -> node traced
+
+    /** Seconds until another trace route may be asked for (Meshtastic's 30 s); 0 when it may. */
+    fun traceWait(now: Long = System.currentTimeMillis()): Int =
+        traces.values.maxOfOrNull { it.at }?.let { ((it + TRACE_GAP_MS - now) / 1000).toInt().coerceAtLeast(0) } ?: 0
+
+    /** Asks for the way to radio `node` and back (one packet each way per hop). */
+    fun traceRoute(node: Int): Boolean {
+        val link = link ?: return false
+        if (status != Status.READY || traceWait() > 0) return false
+        val target = state.nodes[node] ?: return false
+        val id = Random.nextInt(1, Int.MAX_VALUE)
+        tracePackets[id] = node
+        val at = System.currentTimeMillis()
+        traces[node] = Tracing.Waiting(at)
+        link.send(ToRadio(packet = MeshPacket(
+            to = node, channel = target.channel, id = id, want_ack = true,
+            decoded = Data(portnum = PortNum.TRACEROUTE_APP, payload = RouteDiscovery().encodeByteString(), want_response = true),
+        )))
+        main.postDelayed({
+            if (traces[node] is Tracing.Waiting && traces[node]?.at == at) { traces[node] = Tracing.NoAnswer(at); onChange() }
+        }, TRACE_TIMEOUT_MS)
+        onChange()
+        return true
+    }
+
     /** The public channel: listen only, or let the other radios see this one. */
     fun setReadOnly(readOnly: Boolean) {
         prefs.meshReadOnly = readOnly
@@ -234,6 +269,14 @@ object MeshRadio {
                     if (status == Status.READY && d != null && d.portnum == PortNum.TEXT_MESSAGE_APP && p.to == BROADCAST &&
                         p.channel == RadioSetup.publicIndex(prefs.meshReadOnly)) {
                         Messaging.publicHeard(p.from, state.nodes[p.from]?.name ?: RadioState.nodeName(p.from), p.id, d.payload.utf8(), p.rx_time ?: 0)
+                    }
+                    // The answer to a trace route.
+                    if (d != null && d.portnum == PortNum.TRACEROUTE_APP && d.request_id != 0) {
+                        tracePackets.remove(d.request_id)?.let { node ->
+                            val route = try { RouteDiscovery.ADAPTER.decode(d.payload) } catch (e: Exception) { null }
+                            val at = traces[node]?.at ?: System.currentTimeMillis()
+                            if (route != null) traces[node] = Tracing.Done(at, Trace.of(route, node, state.nodeNum))
+                        }
                     }
                     // Meshtastic's answer to a packet that wanted one: it arrived, or it could not.
                     if (d != null && d.portnum == PortNum.ROUTING_APP && d.request_id != 0) {
@@ -342,4 +385,6 @@ object MeshRadio {
     private const val MAX_TRIES = 2
     private const val NEARBY_S = 2 * 3600L
     const val BROADCAST = -1                     // 0xffffffff: every radio
+    private const val TRACE_GAP_MS = 30_000L
+    private const val TRACE_TIMEOUT_MS = 60_000L
 }

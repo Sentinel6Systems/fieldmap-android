@@ -9,6 +9,7 @@ import org.meshtastic.proto.Config
 import org.meshtastic.proto.FromRadio
 import org.meshtastic.proto.LockdownStatus
 import org.meshtastic.proto.MeshPacket
+import org.meshtastic.proto.ModuleConfig
 import org.meshtastic.proto.ModuleSettings
 import org.meshtastic.proto.PortNum
 import org.meshtastic.proto.Position
@@ -59,6 +60,8 @@ data class RadioState(
     val owner: User? = null,
     val lora: Config.LoRaConfig? = null,
     val bluetooth: Config.BluetoothConfig? = null,
+    val device: Config.DeviceConfig? = null,
+    val telemetry: ModuleConfig.TelemetryConfig? = null,
     val channels: Map<Int, Channel> = emptyMap(),
     /** Percent; 101 = on external power; null when the radio did not say. */
     val battery: Int? = null,
@@ -82,6 +85,8 @@ data class RadioState(
         }
         m.config?.lora?.let { s = s.copy(lora = it) }
         m.config?.bluetooth?.let { s = s.copy(bluetooth = it) }
+        m.config?.device?.let { s = s.copy(device = it) }
+        m.moduleConfig?.telemetry?.let { s = s.copy(telemetry = it) }
         m.channel?.let { s = s.copy(channels = s.channels + (it.index to it)) }
         m.lockdown_status?.let { s = s.copy(locked = it.state == LockdownStatus.State.LOCKED || it.state == LockdownStatus.State.NEEDS_PROVISION) }
         return s
@@ -107,6 +112,25 @@ data class RadioState(
     companion object {
         /** How a radio names another one it knows only by number: !1a2b3c4d. */
         fun nodeName(num: Int) = "!%08x".format(num)
+    }
+}
+
+/**
+ * A trace route to another radio: the radios on the way there and back, with the signal (SNR,
+ * dB) at which each one heard the packet; null where it was not measured.
+ */
+data class Trace(val there: List<Pair<Int, Float?>>, val back: List<Pair<Int, Float?>>) {
+    companion object {
+        /**
+         * Reads Meshtastic's answer. `from`: the radio traced; `me`: this one. Each list runs from
+         * the first radio on the way to the last (the radio traced there, this one back).
+         */
+        fun of(r: org.meshtastic.proto.RouteDiscovery, from: Int, me: Int): Trace {
+            fun snr(list: List<Int>, i: Int) = list.getOrNull(i)?.takeIf { it != -128 }?.let { it / 4f }
+            val there = (r.route + from).mapIndexed { i, n -> n to snr(r.snr_towards, i) }
+            val back = (r.route_back + me).mapIndexed { i, n -> n to snr(r.snr_back, i) }
+            return Trace(there, back)
+        }
     }
 }
 
@@ -247,6 +271,19 @@ object RadioSetup {
             else name.trim().take(MAX_LONG_NAME).let { it to shortName(it) }
         if (longName.isNotEmpty() && owner != null && (owner.long_name != longName || owner.short_name != short)) {
             out += AdminMessage(set_owner = owner.copy(long_name = longName, short_name = short))
+        }
+
+        // Paired with Fieldmap, it is the radio of this device: a plain Client, whatever role it had.
+        val device = state.device
+        if (device != null && device.role != Config.DeviceConfig.Role.CLIENT) {
+            out += AdminMessage(set_config = Config(device = device.copy(role = Config.DeviceConfig.Role.CLIENT)))
+        }
+
+        // No health reports of its own over the mesh (firmware 2.7.13 and newer; older ones do not have
+        // the switch and leave it as it is): the phone still gets them over Bluetooth.
+        val telemetry = state.telemetry
+        if (telemetry != null && telemetry.device_telemetry_enabled) {
+            out += AdminMessage(set_module_config = ModuleConfig(telemetry = telemetry.copy(device_telemetry_enabled = false)))
         }
 
         val bt = state.bluetooth

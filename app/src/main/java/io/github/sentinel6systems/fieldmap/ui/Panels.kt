@@ -578,6 +578,8 @@ class Panels(private val a: MainActivity) {
     /** Once a second: the ages in the open panel of another phone, and in the list. */
     fun peerTick() {
         if (screen == Screen.PEER) peerFill()
+        // The wait before the next trace route counts down.
+        if (screen == Screen.NODE && nodeLook() != nodeShown) build()
         if (screen == Screen.SHARING) sharingFill()
     }
 
@@ -776,7 +778,15 @@ class Panels(private val a: MainActivity) {
     // What the Mesh Node panel was built from.
     private var nodeShown = ""
 
-    private fun nodeLook(): String = a.selectedNode?.let { num -> MeshRadio.state.nodes[num]?.let { "$it|" + nodeDetail(it) + (num in MeshShare.fieldmapNodes) } }.orEmpty()
+    private fun nodeLook(): String = a.selectedNode?.let { num -> MeshRadio.state.nodes[num]?.let {
+        "$it|" + nodeDetail(it) + (num in MeshShare.fieldmapNodes) + MeshRadio.traces[num]?.let { t -> t::class.simpleName + t.at } + MeshRadio.traceWait()
+    } }.orEmpty()
+
+    /** A trace route's way, each radio by its name with the signal it heard it at: "Hilltop (6.5 dB) → Target (-3.0 dB)". */
+    private fun traceText(way: List<Pair<Int, Float?>>, last: String): String = way.mapIndexed { i, (num, snr) ->
+        val name = if (i == way.lastIndex) last else MeshRadio.state.nodes[num]?.name ?: RadioState.nodeName(num)
+        name + (snr?.let { " (%.1f dB)".format(it) } ?: "")
+    }.joinToString(" → ")
 
     /** Another radio, tapped on the map or chosen in Nodes Nearby: who it is, how it is heard, where it says it is. */
     private fun node() {
@@ -796,6 +806,20 @@ class Panels(private val a: MainActivity) {
         }, icon = null))
         add(a.row("Last Heard", Ageing.text(((System.currentTimeMillis() / 1000) - n.heard).toInt().coerceAtLeast(0)), icon = null))
         n.battery?.let { add(a.row("Battery", if (it > 100) "External Power" else "$it %", icon = null)) }
+        add(a.label("Trace Route"))
+        val wait = MeshRadio.traceWait()
+        when (val t = MeshRadio.traces[n.num]) {
+            is MeshRadio.Tracing.Waiting -> add(a.body("Tracing… The answer can take up to a minute.", muted = true))
+            is MeshRadio.Tracing.NoAnswer -> add(a.body("No answer. The radio may be out of range, or its answer did not come back.", muted = true))
+            is MeshRadio.Tracing.Done -> {
+                add(a.body("Toward: This radio → " + traceText(t.trace.there, n.name)))
+                add(a.body("Back: ${n.name} → " + traceText(t.trace.back, "This radio"), top = 4))
+                add(a.mono(clock(ShareJson.time(t.at)), 12f))
+            }
+            null -> add(a.body("Shows which radios pass packets between this radio and that one, and how strong each link is.", muted = true))
+        }
+        add(a.button(if (wait > 0) "Trace Route (wait $wait s)" else "Trace Route") { MeshRadio.traceRoute(n.num); build() }
+            .apply { enable(wait == 0 && MeshRadio.status == MeshRadio.Status.READY && MeshRadio.traces[n.num] !is MeshRadio.Tracing.Waiting); layoutParams = lp(top = a.dp(8)) })
         add(a.label("Location"))
         if (n.lat == null || n.lon == null) {
             add(a.body("This radio does not report its location.", muted = true))

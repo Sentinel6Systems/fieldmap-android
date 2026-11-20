@@ -202,6 +202,33 @@ class RadioSetupTest {
         assertNull("no position: not on the map", factory().heard(org.meshtastic.proto.MeshPacket(from = 0x66), 1).nodes[0x66]!!.lat)
     }
 
+    @Test fun aRadioPairedWithFieldmapBecomesAPlainClient() {
+        for (role in listOf(Config.DeviceConfig.Role.ROUTER, Config.DeviceConfig.Role.CLIENT_MUTE, Config.DeviceConfig.Role.TAK)) {
+            val s = factory().copy(device = Config.DeviceConfig(role = role))
+            val plan = RadioSetup.plan(s, channel, "") { 1 } as Setup.Change
+            assertEquals(role.name, Config.DeviceConfig.Role.CLIENT, plan.messages.firstNotNullOf { it.set_config?.device }.role)
+        }
+        val client = factory().copy(device = Config.DeviceConfig(role = Config.DeviceConfig.Role.CLIENT))
+        assertTrue((RadioSetup.plan(client, channel, "") { 1 } as Setup.Change).messages.none { it.set_config?.device != null })
+    }
+
+    @Test fun theRadioStopsBroadcastingItsHealthReports() {
+        val loud = factory().copy(telemetry = org.meshtastic.proto.ModuleConfig.TelemetryConfig(device_telemetry_enabled = true, device_update_interval = 1800))
+        val plan = RadioSetup.plan(loud, channel, "") { 424242 } as Setup.Change
+        val t = plan.messages.firstNotNullOf { it.set_module_config?.telemetry }
+        assertFalse(t.device_telemetry_enabled)
+        assertEquals("the rest stays", 1800, t.device_update_interval)
+        val quiet = factory().copy(telemetry = org.meshtastic.proto.ModuleConfig.TelemetryConfig(device_telemetry_enabled = false))
+        assertTrue((RadioSetup.plan(quiet, channel, "") { 1 } as Setup.Change).messages.none { it.set_module_config != null })
+    }
+
+    @Test fun aTraceRouteIsReadThereAndBack() {
+        val r = org.meshtastic.proto.RouteDiscovery(route = listOf(0x55), snr_towards = listOf(26, -12), route_back = emptyList(), snr_back = listOf(-128))
+        val t = io.github.sentinel6systems.fieldmap.mesh.Trace.of(r, from = 0x99, me = 0x1234)
+        assertEquals(listOf(0x55 to 6.5f, 0x99 to -3.0f), t.there)
+        assertEquals("not measured", listOf<Pair<Int, Float?>>(0x1234 to null), t.back)
+    }
+
     @Test fun shortNamesAreInitialsOrTheStartOfTheName() {
         assertEquals("BTL", RadioSetup.shortName("Blue Team Lead"))
         assertEquals("ALPH", RadioSetup.shortName("alpha"))
