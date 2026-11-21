@@ -170,6 +170,7 @@ class MainActivity : AppCompatActivity() {
         private set
     internal lateinit var routeLines: RouteLines
         private set
+    private var routingCheckedAt = 0L
     /** The routing files of the offline areas, for routes along roads and trails. */
     internal val routingFiles by lazy { RoutingFiles(filesDir) }
     internal val scope = MainScope()
@@ -281,7 +282,7 @@ class MainActivity : AppCompatActivity() {
         b.top.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutMap() }
 
         areas.onChange = ::areasChanged
-        areas.onSaved = { toast("Area downloaded: ${it.name} (${bytesText(it.bytes)})") }
+        areas.onSaved = { toast("Area downloaded: ${it.name} (${bytesText(it.bytes)})"); syncRouting() }
         areas.load()
 
         followChanged()
@@ -1193,9 +1194,13 @@ class MainActivity : AppCompatActivity() {
      * The routing files the offline areas (and `adding`, an area being saved) touch, from the
      * server: missing ones downloaded, ones no area needs removed. Routes are drawn again when they changed.
      */
-    internal fun syncRouting(adding: Box? = null) {
+    internal fun syncRouting(adding: Box? = null, notWithin: Long = 0) {
         val home = prefs.server ?: return
         if (!reachable) return
+        // Checked lately (the list is small, the files only come when they changed): not again so soon.
+        val now = SystemClock.elapsedRealtime()
+        if (adding == null && routingCheckedAt != 0L && now - routingCheckedAt < notWithin) return
+        routingCheckedAt = now
         val boxes = areas.list.mapNotNull { it.bounds }.map { Box(it.longitudeWest, it.latitudeSouth, it.longitudeEast, it.latitudeNorth) } + listOfNotNull(adding)
         scope.launch { if (routingFiles.sync(home, boxes)) routeLines.dataChanged() }
     }
@@ -1713,6 +1718,8 @@ class MainActivity : AppCompatActivity() {
             if (ticks % 15 == 0 || (ticks < 6 && !reachable)) probe()
             // Messages that wait try again, by whatever way there is now.
             if (ticks % 15 == 7) Messaging.push()
+            // The routing files: half a minute after opening, then every ten minutes (the server may have new ones).
+            if (ticks % 60 == 30) syncRouting(notWithin = ROUTING_CHECK_MS)
             ticks++
             ticker.postDelayed(this, 1000)
         }
@@ -1783,6 +1790,8 @@ class MainActivity : AppCompatActivity() {
         const val ROUTES = "fm-routes"
         const val ROUTE_LINES = "fm-routes-line"
         const val ROUTE_DASHED = "fm-routes-dashed"
+        /** How often the routing files are checked against the server while it is reached. */
+        const val ROUTING_CHECK_MS = 600_000L
         const val TRACKS = "fm-tracks"
         const val TRACK_LINES = "fm-tracks-line"
         /** The id on the map of the track being recorded. */

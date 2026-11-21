@@ -37,6 +37,7 @@ import io.github.sentinel6systems.fieldmap.offline.Areas
 import io.github.sentinel6systems.fieldmap.remote.RemoteAccess
 import io.github.sentinel6systems.fieldmap.remote.RemoteInfo
 import io.github.sentinel6systems.fieldmap.offline.Estimate
+import io.github.sentinel6systems.fieldmap.offline.RoutingFiles
 import io.github.sentinel6systems.fieldmap.offline.SavedArea
 import io.github.sentinel6systems.fieldmap.offline.StyleSources
 import io.github.sentinel6systems.fieldmap.offline.Tiles
@@ -318,6 +319,8 @@ class Panels(private val a: MainActivity) {
     /* ---------- saved areas ---------- */
 
     private fun areas() {
+        // Opening the list looks for new or missing routing files too (at most twice a minute).
+        a.syncRouting(notWithin = 30_000)
         val canSave = a.reachable && a.currentStyle() != null
         add(a.button("Download Area", Kind.PRIMARY) { a.startFraming() }.apply { layoutParams = lp(top = a.dp(12)); enable(canSave) })
         if (!canSave) add(a.body("Connect to the server to download an area.", muted = true, top = 8))
@@ -330,7 +333,17 @@ class Panels(private val a: MainActivity) {
         // The routing files that come with the areas, for routes along roads and trails.
         val routing = a.routingFiles
         add(a.row("Routing Data", routing.downloading?.let { "Downloading ${it.removeSuffix(".rd5")} · ${routing.percent}%" }
-            ?: routing.stored().let { if (it.isEmpty()) "None" else "${it.size} file${if (it.size == 1) "" else "s"} · ${bytesText(routing.storedBytes())}" }, icon = null))
+            ?: routing.stored().let { files ->
+                val have = if (files.isEmpty()) "None" else "${files.size} file${if (files.size == 1) "" else "s"} · ${bytesText(routing.storedBytes())}"
+                have + when (routing.check) {
+                    RoutingFiles.Check.NOT_YET -> if (files.isEmpty()) " · Not checked yet" else ""
+                    RoutingFiles.Check.NO_ANSWER -> " · No answer from the server"
+                    RoutingFiles.Check.NONE_ON_SERVER -> " · The server has no routing data"
+                    RoutingFiles.Check.NOT_COVERED -> " · The server's routing data does not cover your offline areas"
+                    RoutingFiles.Check.FAILED -> " · Download failed, retrying later"
+                    RoutingFiles.Check.DONE -> ""
+                }
+            }, icon = null))
         add(a.label("Updates"))
         add(a.body("When the server has new maps, update your offline areas. The app downloads all areas again.", muted = true))
         add(a.button("Update All") { confirmUpdate() }.apply { layoutParams = lp(top = a.dp(10)); enable(a.reachable && a.areas.downloading == null) })

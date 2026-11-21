@@ -31,6 +31,11 @@ class RoutingFiles(filesDir: File) {
     /** The server's list as last read; null before the first. */
     var index: List<RoutingFile>? = read(kept)?.second
         private set
+    /** What the last look at the server found. */
+    enum class Check { NOT_YET, NO_ANSWER, NONE_ON_SERVER, NOT_COVERED, DONE, FAILED }
+    var check = Check.NOT_YET
+        private set
+
     /** The file being downloaded and how far (0-100). */
     var downloading: String? = null
         private set
@@ -60,14 +65,20 @@ class RoutingFiles(filesDir: File) {
     private val lock = Mutex()
 
     private fun syncNow(home: String, areas: List<Box>): Boolean {
-        val list = fetchIndex(home) ?: return false
+        val list = when (val found = fetchIndex(home)) {
+            null -> { check = Check.NO_ANSWER; tell(); return false }
+            NONE -> { check = Check.NONE_ON_SERVER; tell(); return false }
+            else -> found
+        }
         index = list
         dir.mkdirs()
         val wanted = list.filter { f -> areas.any { f.covers(it) } }
         var changed = false
+        // The server's routing data may be for another region than the maps of the areas.
+        check = if (wanted.isEmpty() && areas.isNotEmpty()) Check.NOT_COVERED else Check.DONE
         for (f in wanted) {
             if (have(f)) continue
-            if (!download(home, f)) break
+            if (!download(home, f)) { check = Check.FAILED; break }
             sums[f.name] = f.sha256
             changed = true
             save(list)
@@ -75,17 +86,20 @@ class RoutingFiles(filesDir: File) {
         val names = wanted.map { it.name }.toSet()
         for (old in stored()) if (old.name !in names) { old.delete(); sums.remove(old.name); changed = true }
         save(list)
+        tell()
         return changed
     }
 
+    /** The server's list; NONE when it answers that it has none (404), null when it does not answer. */
     private fun fetchIndex(home: String): List<RoutingFile>? {
+        var none = false
         for (base in bases(home)) {
             val text = try {
-                Http.call(base + "index.json", TIMEOUT_MS).use { r -> if (r.code == 200) r.body?.string() else null }
+                Http.call(base + "index.json", TIMEOUT_MS).use { r -> if (r.code == 404) none = true; if (r.code == 200) r.body?.string() else null }
             } catch (e: Exception) { null } ?: continue
-            return parse(text)
+            return parse(text) ?: NONE
         }
-        return null
+        return if (none) NONE else null
     }
 
     private fun download(home: String, f: RoutingFile): Boolean {
@@ -138,6 +152,8 @@ class RoutingFiles(filesDir: File) {
 
     companion object {
         private const val TIMEOUT_MS = 8000
+        /** The server has no routing files (or not a list the app can read). */
+        private val NONE = emptyList<RoutingFile>()
         private const val DOWNLOAD_TIMEOUT_MS = 600_000
 
         /** Where a server lists its routing files: at the origin, as live sharing (/mapshare/). */
