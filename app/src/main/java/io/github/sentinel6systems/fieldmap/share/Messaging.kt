@@ -102,6 +102,11 @@ object Messaging {
                 MessageRoute.Way.MESH_BROADCAST -> if (MeshShare.sendText(m, null)) sent(m.id, "mesh")
             }
         }
+        // Over the mesh and not confirmed: through the server as well, now that it can be reached.
+        if (serverBase != null) {
+            val now = System.currentTimeMillis()
+            for (m in store.all) if (MessageRoute.retryThroughServer(m, now)) post(m)
+        }
     }
 
     /** A message went out one way. One that goes both ways (to everybody) says so: "server+mesh". */

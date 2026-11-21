@@ -111,6 +111,19 @@ class MessagesTest {
         assertEquals(null, MeshCodec.uidText(MeshCodec.decode(MeshCodec.delivered(me, listOf("test-msg-0001")))!!.delivered!!.by_))
     }
 
+    @Test fun aMeshMessageNotConfirmedGoesThroughTheServerToo() {
+        val now = ShareJson.millis("2027-01-15T09:00:00Z")
+        val sent = msg().copy(status = MessageStatus.SENT, via = "mesh")
+        assertTrue(MessageRoute.retryThroughServer(sent, now))
+        assertTrue("to the group too", MessageRoute.retryThroughServer(sent.copy(to = Message.EVERYONE), now))
+        assertFalse("delivered", MessageRoute.retryThroughServer(sent.copy(status = MessageStatus.DELIVERED), now))
+        assertFalse("through the server already", MessageRoute.retryThroughServer(sent.copy(via = "mesh+server"), now))
+        assertFalse("still waiting: the normal way takes it", MessageRoute.retryThroughServer(sent.copy(status = MessageStatus.WAITING), now))
+        assertFalse("the public channel is mesh only", MessageRoute.retryThroughServer(sent.copy(to = Message.PUBLIC), now))
+        assertFalse("not ours", MessageRoute.retryThroughServer(sent.copy(mine = false), now))
+        assertFalse("older than the server keeps", MessageRoute.retryThroughServer(sent, now + 8 * 86_400_000L))
+    }
+
     @Test fun aTypedMessageIsOneLineAndNoLongerThanFits() {
         assertEquals("a b", Message.clean("  a\n\tb "))
         assertEquals(Message.MAX, Message.clean("x".repeat(500)).length)

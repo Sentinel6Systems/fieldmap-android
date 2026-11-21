@@ -168,6 +168,14 @@ object MessageRoute {
 
     const val RELAY_BACKUP_MS = 60_000L
 
+    /**
+     * A message of ours that went over the mesh only and is not confirmed: it also goes through the
+     * server once that can be reached, which keeps it for the device it is for (a week), so that it
+     * arrives when that device connects. Each message has an id: whoever has it already keeps it once.
+     */
+    fun retryThroughServer(m: Message, nowMs: Long): Boolean = m.mine && m.to != Message.PUBLIC && m.status == MessageStatus.SENT &&
+        "server" !in m.via.split("+") && nowMs - ShareJson.millis(m.time) < 7 * 86_400_000L
+
     fun choose(to: String, serverUp: Boolean, onServer: Boolean, meshReady: Boolean, meshNode: Int?): List<Way> = when {
         to == Message.EVERYONE -> listOfNotNull(Way.SERVER.takeIf { serverUp }, Way.MESH_BROADCAST.takeIf { meshReady })
         serverUp && onServer -> listOf(Way.SERVER)
