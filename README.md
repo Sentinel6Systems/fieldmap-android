@@ -25,7 +25,7 @@ No account, no advertising, no analytics. The app connects only to the server yo
 the server owner set one up). It also works with other [TileServer GL](https://github.com/maptiler/tileserver-gl)
 servers that have vector styles.
 
-Status: version 0.1.1. Needs Android 8.0 or newer. See [what was tested](docs/testing.md).
+Status: version 0.1.2. Needs Android 8.0 or newer. See [what was tested](docs/testing.md).
 
 ## Install
 
