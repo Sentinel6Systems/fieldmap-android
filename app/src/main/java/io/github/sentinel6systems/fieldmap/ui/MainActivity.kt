@@ -668,7 +668,6 @@ class MainActivity : AppCompatActivity() {
         },
     )
 
-    /** A route's length and time at its speed, as its legs are drawn now: "4.2 km · 50 min". */
     /**
      * The lines of the roads a Route Type can use near a point, from the map's own tiles
      * (OpenMapTiles' transportation layer, as on the map in the browser): only the tiles the map
@@ -691,6 +690,7 @@ class MainActivity : AppCompatActivity() {
         return out
     }
 
+    /** A route's length and time at its speed, as its legs are drawn now: "4.2 km · 50 min". */
     internal fun routeDetail(r: PlannedRoute): String =
         routeLines.legs(r, ask = false).sumOf { Routes.length(it.line) }.let { distanceText(it) + " · " + Routes.timeText(Routes.minutes(it, r.mph)) }
 
