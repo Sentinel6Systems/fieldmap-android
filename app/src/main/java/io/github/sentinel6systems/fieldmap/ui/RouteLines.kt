@@ -23,17 +23,17 @@ enum class LegState {
 
 /**
  * One leg of a route as it is drawn, from one of its points to the next (lat to lon). Along a road,
- * `offStart` / `offEnd`: that point is off any road or trail the Route Type uses, and the line's
- * first / last part is the straight line from it to the road (Routes.roadLeg).
+ * `head` / `tail`: the line's first / last part is the straight line between the point and the road
+ * (Routes.roadLeg); `offRoad`: the leg ends off the road.
  */
-class LegLine(val line: List<Pair<Double, Double>>, val state: LegState, val offStart: Boolean = false, val offEnd: Boolean = false) {
+class LegLine(val line: List<Pair<Double, Double>>, val state: LegState, val head: Boolean = false, val tail: Boolean = false, val offRoad: Boolean = false) {
     /** The parts to draw, each with true when dashed: a straight leg for want of a way, and the straight ends off the road. */
     val pieces: List<Pair<List<Pair<Double, Double>>, Boolean>> get() {
         if (state != LegState.ROUTED) return listOf(line to (state != LegState.STRAIGHT))
         val out = ArrayList<Pair<List<Pair<Double, Double>>, Boolean>>()
-        if (offStart) out += line.subList(0, 2) to true
-        out += line.subList(if (offStart) 1 else 0, line.size - if (offEnd) 1 else 0) to false
-        if (offEnd) out += line.subList(line.size - 2, line.size) to true
+        if (head) out += line.subList(0, 2) to true
+        out += line.subList(if (head) 1 else 0, line.size - if (tail) 1 else 0) to false
+        if (tail) out += line.subList(line.size - 2, line.size) to true
         return out
     }
 }
@@ -42,7 +42,11 @@ class LegLine(val line: List<Pair<Double, Double>>, val state: LegState, val off
  * The lines of routes' legs along roads and trails (geo/Router.kt), worked out one at a time on
  * a thread of their own and kept, also in a file, so that they are not worked out again at every
  * start. Only a route's points travel between devices; each one draws the legs from its own
- * routing files, which all come from the same server.
+ * routing files, which all come from the same server. The points stay where they were put
+ * (Routes.roadLeg). When BRouter finds no way (the road nearest a point cannot be reached), the
+ * roads nearest the end point on the map are tried, then those nearest the start, then both: the
+ * line along the roads, then straight to the point. Only then is the leg drawn straight. The same
+ * rules as the map in the browser.
  */
 class RouteLines(private val a: MainActivity) {
     private val file = File(a.filesDir, "route-lines.json")
@@ -52,8 +56,8 @@ class RouteLines(private val a: MainActivity) {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var router: Router? = null
-    /** A leg's line was worked out: from, to, type, line (null: no way). */
-    var onLeg: (Pair<Double, Double>, Pair<Double, Double>, RouteType, List<Pair<Double, Double>>?) -> Unit = { _, _, _, _ -> }
+    /** On the main thread: the lines of the roads near a point that a Route Type can use (from the map's tiles). */
+    var roadsNear: (Pair<Double, Double>, RouteType) -> List<List<Pair<Double, Double>>> = { _, _ -> emptyList() }
 
     init { load() }
 
@@ -61,7 +65,7 @@ class RouteLines(private val a: MainActivity) {
     fun legs(r: PlannedRoute, ask: Boolean = true): List<LegLine> = r.points.zipWithNext().map { (p, q) ->
         val profile = r.type.profile ?: return@map LegLine(listOf(p, q), LegState.STRAIGHT)
         val k = key(r.type, p, q)
-        if (known.containsKey(k)) known[k]?.let { Routes.roadLeg(p, q, it) }?.let { LegLine(it.line, LegState.ROUTED, it.offStart, it.offEnd) }
+        if (known.containsKey(k)) known[k]?.let { Routes.roadLeg(p, q, it) }?.let { LegLine(it.line, LegState.ROUTED, it.head, it.tail, it.offRoad) }
             ?: LegLine(listOf(p, q), LegState.NO_WAY)
         else {
             if (ask) ask(k, p, q, r.type, profile)
@@ -71,12 +75,6 @@ class RouteLines(private val a: MainActivity) {
 
     /** The whole line of a route as it is drawn now (for a file). */
     fun line(r: PlannedRoute): List<Pair<Double, Double>> = legs(r, ask = false).flatMapIndexed { i, l -> if (i == 0) l.line else l.line.drop(1) }
-
-    /** A leg's line is also the one between its ends where they were moved to (onto the road): no need to work it out again. */
-    fun alias(type: RouteType, p: Pair<Double, Double>, q: Pair<Double, Double>, line: List<Pair<Double, Double>>) {
-        known[key(type, p, q)] = line
-        saveSoon()
-    }
 
     /** New routing files came: legs are worked out again. */
     fun dataChanged() {
@@ -88,15 +86,28 @@ class RouteLines(private val a: MainActivity) {
 
     private fun ask(k: String, p: Pair<Double, Double>, q: Pair<Double, Double>, type: RouteType, profile: String) {
         if (!asked.add(k)) return
+        fun done(line: List<Pair<Double, Double>>?) = main.post {
+            asked.remove(k)
+            known[k] = line
+            saveSoon()
+            a.routesChanged()
+            a.panels.refresh()
+        }
+        // A line that ends too far from its point is no way either.
+        fun tryLeg(from: Pair<Double, Double>, to: Pair<Double, Double>) =
+            (try { router().leg(from, to, profile) } catch (e: Exception) { null })?.takeIf { Routes.roadLeg(p, q, it) != null }
         worker.execute {
-            val line = try { router().leg(p, q, profile) } catch (e: Exception) { null }
+            tryLeg(p, q)?.let { done(it); return@execute }
+            // No way: the roads near both ends, from the map (main thread), then tried here.
             main.post {
-                asked.remove(k)
-                known[k] = line
-                saveSoon()
-                onLeg(p, q, type, line)
-                a.routesChanged()
-                a.panels.refresh()
+                val nearQ = try { Routes.nearestRoadPoints(q, roadsNear(q, type)) } catch (e: Exception) { emptyList() }
+                val nearP = try { Routes.nearestRoadPoints(p, roadsNear(p, type)) } catch (e: Exception) { emptyList() }
+                worker.execute {
+                    val line = nearQ.firstNotNullOfOrNull { tryLeg(p, it) }
+                        ?: nearP.firstNotNullOfOrNull { tryLeg(it, q) }
+                        ?: if (nearP.isNotEmpty() && nearQ.isNotEmpty()) tryLeg(nearP[0], nearQ[0]) else null
+                    done(line)
+                }
             }
         }
     }

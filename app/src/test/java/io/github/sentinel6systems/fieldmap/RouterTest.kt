@@ -90,7 +90,7 @@ class RouterTest {
         val road = router.leg(a, water, RouteType.DRIVING.profile!!)
         assertNotNull("to the water", road)
         val leg = Routes.roadLeg(a, water, road!!)!!
-        assertTrue("${Routes.length(listOf(water, road.last()))} m", leg.offEnd && !leg.offStart)
+        assertTrue("${Routes.length(listOf(water, road.last()))} m", leg.tail && leg.offRoad)
         assertEquals(water, leg.line.last())
     }
 }

@@ -7,7 +7,6 @@ import androidx.appcompat.app.AlertDialog
 import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.PlannedRoute
 import io.github.sentinel6systems.fieldmap.data.RouteType
-import io.github.sentinel6systems.fieldmap.geo.Arrows
 import io.github.sentinel6systems.fieldmap.geo.Routes
 import org.maplibre.android.geometry.LatLng
 import kotlin.math.hypot
@@ -17,8 +16,8 @@ import kotlin.math.hypot
  * open, a tap on the map adds a point at the end; a point dragged moves; the dot in the middle
  * of a leg dragged (or tapped) adds a point there; a point tapped is chosen, for Remove Point.
  * Undo takes back the last change, Done keeps the route, Back leaves it as it was. Its Route
- * Type says how the legs go; along roads or trails a point moves onto the road or trail nearest
- * it once its leg is worked out ("snap to road").
+ * Type says how the legs go; a point stays where it was put, and a point off the road or trail
+ * is joined to it by a straight dashed line (RouteLines).
  */
 class RouteEditor(private val a: MainActivity) {
     /** The route's points while it is drawn (lat to lon); null when no route is being drawn. */
@@ -97,27 +96,6 @@ class RouteEditor(private val a: MainActivity) {
         remember()
         type = to
         a.prefs.routeType = to
-        changedNow()
-    }
-
-    /**
-     * A leg was worked out: its ends move onto the road or trail (if they are still where they were,
-     * by more than half a meter and at most Routes.ON_ROAD_METERS). A point farther off stays where
-     * it was put: a straight dashed line joins it to the road. The leg's line is then the line
-     * between the new ends too.
-     */
-    fun snapped(p: Pair<Double, Double>, q: Pair<Double, Double>, legType: RouteType, line: List<Pair<Double, Double>>?) {
-        val list = points ?: return
-        if (line == null || legType != type || drag != null) return
-        val i = (0 until list.size - 1).firstOrNull { list[it] == p && list[it + 1] == q } ?: return
-        fun onto(x: Pair<Double, Double>, road: Pair<Double, Double>) =
-            if (Arrows.inverse(x.first, x.second, road.first, road.second).first > 0.5 && !Routes.offRoad(x, road)) road else x
-        val from = onto(p, line.first())
-        val to = onto(q, line.last())
-        if (from == p && to == q) return
-        list[i] = from
-        list[i + 1] = to
-        a.routeLines.alias(type, from, to, line)
         changedNow()
     }
 

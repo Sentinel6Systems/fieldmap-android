@@ -113,9 +113,11 @@ Tap the route to see its panel: **Route Type**, **Distance and Time** (set the *
 **Legs** with each leg's distance and bearing, **Start** and **End**. **Edit Route** changes it again; **Delete**
 removes it. Leaving the editor without **Done** asks **Discard Changes?**.
 
-Legs along roads and trails are solid. A point more than about 100 m from a road or trail gets a line along the
-road to the nearest place, then a dashed straight line to the point. A leg the app can't work out is straight and
-dashed, and the panel says why: no way was found there, or the device has no routing data for the area.
+Legs along roads and trails are solid. Points stay where you put them: a point off a road or trail gets a line
+along the road to the nearest place the route can reach, then a dashed straight line to the point. The panel counts
+the legs that end more than about 100 m off the road. A leg the app can't work out is straight and dashed, and the
+panel says why: no route was found there, or the device has no routing data for the area. Routes look the same on
+the server's map in the browser.
 
 **Routing data** comes with your offline areas: when you download an area, the app also downloads the server's
 routing data for it. **Menu** › **Offline Areas** shows its state under **Routing Data**. The server owner has to

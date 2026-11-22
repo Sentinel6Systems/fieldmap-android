@@ -52,11 +52,13 @@ data class RecordedTrack(val segments: List<List<TrackPoint>>)
 /**
  * How a route's legs go: by road (BRouter's car profile), on foot by roads, tracks and trails (its
  * hiking profile), or straight. `key`: in files, `profile`: BRouter's profile, `mph`: the speed a
- * new route of the type starts with.
+ * new route of the type starts with, `roads`: the road classes it can use (OpenMapTiles'
+ * transportation layer, as on the map in the browser), to look for the nearest road when no way
+ * was found.
  */
-enum class RouteType(val key: String, val title: String, val profile: String?, val mph: Int) {
-    DRIVING("driving", "Driving", "car-vario", 25),
-    WALKING("walking", "Walking", "hiking-mountain", 2),
+enum class RouteType(val key: String, val title: String, val profile: String?, val mph: Int, val roads: List<String> = emptyList()) {
+    DRIVING("driving", "Driving", "car-vario", 25, listOf("motorway", "trunk", "primary", "secondary", "tertiary", "minor", "service")),
+    WALKING("walking", "Walking", "hiking-mountain", 2, listOf("trunk", "primary", "secondary", "tertiary", "minor", "service", "track", "path")),
     STRAIGHT("straight", "Straight Line", null, 2);
 
     companion object {

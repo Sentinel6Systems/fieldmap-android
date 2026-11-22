@@ -9,6 +9,7 @@ import kotlin.math.roundToInt
 import io.github.sentinel6systems.fieldmap.geo.Arrows
 import io.github.sentinel6systems.fieldmap.geo.Routes
 import io.github.sentinel6systems.fieldmap.data.PlannedRoute
+import io.github.sentinel6systems.fieldmap.data.RouteType
 import io.github.sentinel6systems.fieldmap.data.Recording
 import io.github.sentinel6systems.fieldmap.data.Gpx
 import io.github.sentinel6systems.fieldmap.offline.RoutingFiles
@@ -139,6 +140,8 @@ import org.maplibre.android.style.layers.PropertyFactory.textOpacity
 import org.maplibre.android.style.layers.PropertyFactory.textSize
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.sources.VectorSource
+import org.maplibre.geojson.MultiLineString
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
@@ -235,7 +238,7 @@ class MainActivity : AppCompatActivity() {
         panels = Panels(this)
         routes = RouteEditor(this)
         routeLines = RouteLines(this)
-        routeLines.onLeg = routes::snapped
+        routeLines.roadsNear = ::roadsNear
         routingFiles.onChange = { panels.refresh() }
         Recording.init(this)
         Recording.onChange = ::recordingChanged
@@ -666,6 +669,28 @@ class MainActivity : AppCompatActivity() {
     )
 
     /** A route's length and time at its speed, as its legs are drawn now: "4.2 km · 50 min". */
+    /**
+     * The lines of the roads a Route Type can use near a point, from the map's own tiles
+     * (OpenMapTiles' transportation layer, as on the map in the browser): only the tiles the map
+     * has loaded, so the roads near what is on the screen.
+     */
+    private fun roadsNear(p: Pair<Double, Double>, type: RouteType): List<List<Pair<Double, Double>>> {
+        val style = map?.style ?: return emptyList()
+        if (type.roads.isEmpty()) return emptyList()
+        val filter = Expression.any(*type.roads.map { Expression.eq(Expression.get("class"), it) }.toTypedArray())
+        val out = ArrayList<List<Pair<Double, Double>>>()
+        fun line(points: List<Point>) = points.map { it.latitude() to it.longitude() }
+        for (source in style.sources.filterIsInstance<VectorSource>()) {
+            val features = try { source.querySourceFeatures(arrayOf("transportation"), filter) } catch (e: Exception) { continue }
+            for (f in features) when (val g = f.geometry()) {
+                is LineString -> out += line(g.coordinates())
+                is MultiLineString -> g.coordinates().forEach { out += line(it) }
+                else -> {}
+            }
+        }
+        return out
+    }
+
     internal fun routeDetail(r: PlannedRoute): String =
         routeLines.legs(r, ask = false).sumOf { Routes.length(it.line) }.let { distanceText(it) + " · " + Routes.timeText(Routes.minutes(it, r.mph)) }
 

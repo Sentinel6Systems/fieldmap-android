@@ -235,26 +235,47 @@ class RoutesTest {
         assertEquals(3, JSONObject(ShareJson.marker(shared)).getJSONObject("geometry").getJSONArray("coordinates").length())
     }
 
-    @Test fun aPointOffTheRoadStaysAndADashedLineJoinsIt() {
-        // The road from just by the start (30 m) to 2 km short of the end point.
+    @Test fun pointsStayWhereTheyWerePutAndDashedLinesJoinThemToTheRoad() {
+        // The road from 30 m east of the start to 2 km short of the end point.
         val p = 48.0 to -122.0
         val q = 48.05 to -122.0
         val road = listOf(48.0 to -121.9996, 48.02 to -121.9996, 48.032 to -121.9996)
         val leg = Routes.roadLeg(p, q, road)!!
-        assertFalse(leg.offStart)
-        assertTrue(leg.offEnd)
-        assertEquals(road + listOf(q), leg.line)
-        // Drawn: the road solid, then straight and dashed to the point; the length counts both.
-        val drawn = LegLine(leg.line, LegState.ROUTED, leg.offStart, leg.offEnd)
-        assertEquals(listOf(road to false, listOf(road.last(), q) to true), drawn.pieces)
+        // Any gap over 3 m is dashed; only one over 100 m "ends off road".
+        assertTrue(leg.head)
+        assertTrue(leg.tail)
+        assertTrue(leg.offRoad)
+        assertEquals(listOf(p) + road + listOf(q), leg.line)
+        val drawn = LegLine(leg.line, LegState.ROUTED, leg.head, leg.tail, leg.offRoad)
+        assertEquals(listOf(listOf(p, road.first()) to true, road to false, listOf(road.last(), q) to true), drawn.pieces)
         assertTrue(Routes.length(drawn.line) > Routes.length(road) + 1900)
-        // Off at both ends.
-        val both = Routes.roadLeg(48.0 to -122.01, q, road)!!
-        assertEquals(listOf(true, false, true), LegLine(both.line, LegState.ROUTED, both.offStart, both.offEnd).pieces.map { it.second })
-        // Farther than 15 km from any road: no way (drawn straight).
+        // 30 m off at the start only: dashed, but not off road.
+        val near = Routes.roadLeg(p, road.last(), road)!!
+        assertTrue(near.head && !near.tail && !near.offRoad)
+        // On the road (under 3 m): nothing dashed.
+        val on = Routes.roadLeg(road.first(), road.last(), road)!!
+        assertEquals(road, on.line)
+        assertEquals(listOf(road to false), LegLine(on.line, LegState.ROUTED, on.head, on.tail, on.offRoad).pieces)
+        // More than 15 km from its point: no way (drawn straight).
         assertNull(Routes.roadLeg(p, 48.2 to -122.0, road))
         // Straight legs and legs not worked out yet are one piece.
         assertEquals(listOf(listOf(p, q) to true), LegLine(listOf(p, q), LegState.NO_WAY).pieces)
         assertEquals(listOf(listOf(p, q) to false), LegLine(listOf(p, q), LegState.STRAIGHT).pieces)
+    }
+
+    @Test fun theRoadsNearestAPointAreFarEnoughApart() {
+        val p = 48.0 to -122.0
+        // A north-south road 1 km east, and an east-west one 2 km north; a far one 20 km south.
+        val east = listOf(47.99 to -121.98657, 48.01 to -121.98657)
+        val north = listOf(48.018 to -122.01, 48.018 to -121.99)
+        val far = listOf(47.82 to -122.01, 47.82 to -121.99)
+        val found = Routes.nearestRoadPoints(p, listOf(far, north, east))
+        assertEquals(2, found.size)
+        assertEquals(1000.0, Routes.length(listOf(p, found[0])), 20.0)
+        assertEquals(48.0, found[0].first, 1e-4)
+        assertEquals(2000.0, Routes.length(listOf(p, found[1])), 30.0)
+        // At least 500 m apart: a second place on the same road next to the first is not taken.
+        val twice = Routes.nearestRoadPoints(p, listOf(east, east.map { it.first to it.second + 0.0001 }))
+        assertEquals(1, twice.size)
     }
 }

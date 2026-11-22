@@ -87,26 +87,56 @@ object Routes {
 
     /**
      * A leg found along roads or trails from p to q. BRouter's line goes from the road or trail
-     * nearest p to the one nearest q: an end within ON_ROAD_METERS is moved onto it (snap to
-     * road); a point farther off stays where it is, joined to the road by a straight dashed line.
+     * nearest p to the one nearest q; the points stay where they were put. Where the line starts or
+     * ends more than GAP_METERS from its point, a straight dashed piece joins them (head / tail);
+     * more than OFF_ROAD_METERS: the leg "ends off road". All as on the map in the browser.
      */
-    class RoadLeg(val line: List<Pair<Double, Double>>, val offStart: Boolean, val offEnd: Boolean)
+    class RoadLeg(val line: List<Pair<Double, Double>>, val head: Boolean, val tail: Boolean, val offRoad: Boolean)
 
-    const val ON_ROAD_METERS = 100.0
-    /** An end farther than this from any road or trail: the leg is drawn straight, as if no way was found (as on the map in the browser). */
+    const val GAP_METERS = 3.0
+    const val OFF_ROAD_METERS = 100.0
+    /** An end farther than this from its point: no way (the leg is drawn straight). Also how far roads are looked for. */
     const val MAX_OFF_ROAD_METERS = 15_000.0
 
-    /** True when `point` is more than ON_ROAD_METERS from `road` (the end of the line along the road). */
-    fun offRoad(point: Pair<Double, Double>, road: Pair<Double, Double>) =
-        Arrows.inverse(point.first, point.second, road.first, road.second).first > ON_ROAD_METERS
-
-    /** The leg from p to q around `road` (the line along roads, at least 2 points); null when an end is too far off the road. */
+    /** The leg from p to q around `road` (the line along roads, at least 2 points); null when an end is too far from its point. */
     fun roadLeg(p: Pair<Double, Double>, q: Pair<Double, Double>, road: List<Pair<Double, Double>>): RoadLeg? {
-        fun far(a: Pair<Double, Double>, b: Pair<Double, Double>) = Arrows.inverse(a.first, a.second, b.first, b.second).first > MAX_OFF_ROAD_METERS
-        if (far(p, road.first()) || far(q, road.last())) return null
-        val offStart = offRoad(p, road.first())
-        val offEnd = offRoad(q, road.last())
-        return RoadLeg((if (offStart) listOf(p) else emptyList()) + road + (if (offEnd) listOf(q) else emptyList()), offStart, offEnd)
+        fun gap(a: Pair<Double, Double>, b: Pair<Double, Double>) = Arrows.inverse(a.first, a.second, b.first, b.second).first
+        val start = gap(p, road.first())
+        val end = gap(q, road.last())
+        if (start > MAX_OFF_ROAD_METERS || end > MAX_OFF_ROAD_METERS) return null
+        val head = start > GAP_METERS
+        val tail = end > GAP_METERS
+        return RoadLeg((if (head) listOf(p) else emptyList()) + road + (if (tail) listOf(q) else emptyList()), head, tail,
+            start > OFF_ROAD_METERS || end > OFF_ROAD_METERS)
+    }
+
+    /**
+     * The places on these lines nearest p, nearest first: at most `count`, each at least `spread`
+     * meters from the others, none farther than `most` meters. For a leg with no way: the roads
+     * near its end (then its start) to route to instead.
+     */
+    fun nearestRoadPoints(p: Pair<Double, Double>, lines: List<List<Pair<Double, Double>>>, count: Int = 3, spread: Double = 500.0,
+                          most: Double = MAX_OFF_ROAD_METERS): List<Pair<Double, Double>> {
+        val kx = cos(Math.toRadians(p.first)) * 111_320
+        val ky = 110_540.0
+        class Found(val x: Double, val y: Double) { val meters = hypot(x, y) }
+        val found = ArrayList<Found>()
+        for (line in lines) for (i in 1 until line.size) {
+            val x1 = (line[i - 1].second - p.second) * kx
+            val y1 = (line[i - 1].first - p.first) * ky
+            val dx = (line[i].second - p.second) * kx - x1
+            val dy = (line[i].first - p.first) * ky - y1
+            val len = dx * dx + dy * dy
+            val t = if (len > 0) (-(x1 * dx + y1 * dy) / len).coerceIn(0.0, 1.0) else 0.0
+            val f = Found(x1 + t * dx, y1 + t * dy)
+            if (f.meters <= most) found += f
+        }
+        val out = ArrayList<Found>()
+        for (f in found.sortedBy { it.meters }) {
+            if (out.size >= count) break
+            if (out.all { hypot(it.x - f.x, it.y - f.y) >= spread }) out += f
+        }
+        return out.map { (p.first + it.y / ky) to (p.second + it.x / kx) }
     }
 
     /** A bearing as the app shows it: "042°T". */
