@@ -921,6 +921,12 @@ class Panels(private val a: MainActivity) {
         val store = Messaging.store
         val people = (store.partners() + a.sharing.others().map { it.uid }).distinct().filter { it != Message.EVERYONE && it != Message.PUBLIC }
         add(a.body("Messages go through the server when it can be reached, and over the mesh radio when not. Up to ${Message.MAX} characters.", muted = true, top = 12))
+        when (a.sharing.box) {
+            Sharing.Box.OFF -> add(a.body("Messages are disabled on the server. To enable them, open Admin > Devices on the server in a browser " +
+                "and enable Location Sharing and Messages (step 2).", top = 8).apply { setTextColor(a.color(R.color.warn)) })
+            Sharing.Box.NONE -> add(a.body("This server does not support messages.", top = 8).apply { setTextColor(a.color(R.color.warn)) })
+            else -> {}
+        }
         val groups = listOfNotNull(Message.PUBLIC.takeIf { a.prefs.radioAddress != null }, Message.EVERYONE)
         for (partner in groups + people) {
             if (partner == people.firstOrNull()) add(a.label("Direct Messages"))
@@ -1084,7 +1090,7 @@ class Panels(private val a: MainActivity) {
         MeshRadio.Status.CONNECTING -> "Reading the radio's settings."
         MeshRadio.Status.SETTING_UP -> "Writing the server's channel to the radio. The radio restarts, then connects again."
         MeshRadio.Status.NEEDS_REGION -> "The radio has no region yet."
-        MeshRadio.Status.NO_CHANNEL -> "Connect to the server once while Location Sharing is enabled on it. Fieldmap then gets the server's private channel and configures the radio."
+        MeshRadio.Status.NO_CHANNEL -> "Connect to the server once while Location Sharing and Messages is enabled on it. Fieldmap then gets the server's private channel and configures the radio."
         MeshRadio.Status.LOCKED -> "The radio is locked with a passphrase. Unlock it in the Meshtastic app, then connect again."
         MeshRadio.Status.READY -> "The radio uses the server's private channel."
         MeshRadio.Status.FAILED -> MeshRadio.problem
@@ -1151,7 +1157,7 @@ class Panels(private val a: MainActivity) {
         if (mine == null && info?.ready != true) return
         box.addView(a.label("Remote Access"))
         if (info?.enabled == false || (info == null && a.remoteSwitchedOff)) {
-            box.addView(a.body("Remote connectivity is disabled on the server. To enable it, open Admin > Remote Access on the server in a browser. " +
+            box.addView(a.body("Remote connectivity is disabled on the server. To enable it, open Admin > Devices on the server in a browser (step 3). " +
                 (if (mine != null) "This device stays paired." else "You can then pair this device."), muted = true))
             return
         }
@@ -1169,7 +1175,7 @@ class Panels(private val a: MainActivity) {
             return
         }
         box.addView(a.body("Pair this device to connect to the server over the internet when you are away from its network. " +
-            (if (info?.pairingOpen == true) "Pairing mode is active on the server." else "First, open Admin > Devices on the server and press Start Pairing."), muted = true))
+            (if (info?.pairingOpen == true) "Pairing mode is active on the server." else "First, open Admin > Devices on the server and press Start Pairing (step 3)."), muted = true))
         val code = if (info?.pin == true) a.field("Access Code", "", max = 64) { hideKeyboard() }.apply { layoutParams = lp(top = a.dp(10)) }.also(box::addView) else null
         val said = a.body("", top = 8).apply { setTextColor(a.color(R.color.warn)); visibility = View.GONE }
         val button = a.button("Pair Device", Kind.PRIMARY) {}

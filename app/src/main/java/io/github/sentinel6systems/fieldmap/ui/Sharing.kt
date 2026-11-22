@@ -278,7 +278,7 @@ class Sharing(private val a: MainActivity) {
         peers = emptyList()
         sentAt = 0
         rev = null
-        if (!saidOff && (on || !a.prefs.pending.empty)) a.toast("Location sharing is disabled on the server. To enable it, open Admin > Devices on the server.")
+        if (!saidOff && (on || !a.prefs.pending.empty)) a.toast("Location sharing and messages are disabled on the server. To enable them, open Admin > Devices on the server (step 2).")
         saidOff = true
     }
 
@@ -365,7 +365,7 @@ class Sharing(private val a: MainActivity) {
     fun about(): String = when {
         a.prefs.server == null -> "Location sharing works through a Fieldmap server. First, connect to a server in Menu > Server."
         box == Box.NONE -> "This server does not support location sharing."
-        box == Box.OFF -> "Location sharing is disabled on the server. To enable it, open Admin > Devices on the server in a browser."
+        box == Box.OFF -> "Location sharing and messages are disabled on the server. To enable them, open Admin > Devices on the server in a browser (step 2)."
         !a.reachable -> "No connection to the server. Shared markers are still available, and your changes sync when the connection returns."
         else -> "Devices on this server can see each other's locations and share markers."
     }

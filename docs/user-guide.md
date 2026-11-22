@@ -153,8 +153,8 @@ shared with other devices.
 If the server owner has enabled **Remote Connectivity**, a paired device can use the server over the internet. Pair
 once, on the local network:
 
-1. The server owner enables **Remote Connectivity** under **Admin** › **Remote Access**, or presses **Start
-   Pairing** on the **Devices** page. Pairing mode then stays active for 10 minutes.
+1. The server owner enables **Remote Connectivity** on the server's **Admin** › **Devices** page (step 3), or
+   presses **Start Pairing** there. Pairing mode then stays active for 10 minutes.
 2. In the app, go to **Menu** › **Server** and press **Pair Device**.
 
 Away from the local network the app connects through the internet by itself. The top still shows **Connected**,
@@ -172,8 +172,8 @@ learns the server's current addresses.
 ## Location sharing
 
 Devices connected to the same server can see each other's locations and share markers. The server owner must
-first enable **Location Sharing** on the server's **Devices** page; otherwise the app shows "Location sharing is
-disabled on the server."
+first enable **Location Sharing and Messages** on the server's **Admin** › **Devices** page (step 2); otherwise
+the app shows "Location sharing and messages are disabled on the server."
 
 **Share your location:**
 
@@ -207,7 +207,8 @@ Not available yet: groups within a server, and connecting ATAK or other TAK apps
 ## Messages
 
 Short text messages between the devices and browsers on your server, and over the mesh radio when the server
-can't be reached.
+can't be reached. Messages through the server need **Location Sharing and Messages** enabled on the server's
+**Admin** › **Devices** page (step 2); you don't have to share your own location.
 
 1. Go to **Menu** › **Messages**, or press **Send Message** on someone's **Shared Location** panel.
 2. Choose a conversation: **Group (Private)** goes to all devices of this server; **Direct Messages** lists the
@@ -306,9 +307,9 @@ doesn't answer, the app reaches it over the Wi-Fi directly; there's nothing to s
 | An area shows **Incomplete**. | Open the app on the local network; the download carries on. |
 | **Pair Device** fails. | Ask the server owner to enable Remote Connectivity or press **Start Pairing**, then pair within 10 minutes. |
 | A paired device can't connect from the internet. | Bring it to the local network once so it learns the server's current addresses. |
-| The app says location sharing is disabled on the server. | The server owner must enable Location Sharing on the server's Devices page. |
+| The app says location sharing and messages are disabled on the server. | The server owner must enable **Location Sharing and Messages** on the server's **Admin** › **Devices** page (step 2). |
 | Nobody sees my location. | Check the **Sharing** tag is amber. The others must start sharing too. |
 | A route has dashed straight legs. | No way was found, or there is no routing data there. Download an offline area covering the route while connected to the server, and add points closer together (see [Routes](#routes)). |
-| The mesh radio says **Waiting for Server Channel**. | Connect to the server once while Location Sharing is enabled on it. |
+| The mesh radio says **Waiting for Server Channel**. | Connect to the server once while Location Sharing and Messages is enabled on it. |
 | The mesh radio can't be found or connect. | Turn on Bluetooth and the radio, allow **Nearby Devices**, and keep the radio close. To start over, press **Forget Radio** and pair again. |
 | Sharing stops in the background. | Some phones' battery savers stop background apps. Open the app again, or exclude Fieldmap from battery saving. |
