@@ -29,9 +29,9 @@ Status: version 0.1.0. Needs Android 8.0 or newer. See [what was tested](docs/te
 From a fieldmap-server: connect the device to the server's local network, open the server in the browser, go
 to **Admin** › **Devices** and press **Download App** under **Android App**. No app store or account needed.
 
-There is no published release yet, so for now the server offers the app only if its owner added a build. To build it
-yourself, see [building](docs/building.md), then install with `adb install app/build/outputs/apk/debug/app-debug.apk`
-or copy the `.apk` to the device and open it.
+Or download the `.apk` from the [latest release](https://github.com/Sentinel6Systems/fieldmap-android/releases/latest)
+and open it on the device. The server gets the same release with `./scripts/app.sh fetch`. To build the app yourself,
+see [building](docs/building.md).
 
 ## First steps
 
@@ -52,7 +52,7 @@ or copy the `.apk` to the device and open it.
 
 - Sharing that starts by itself after a restart (needs "all the time" location permission).
 - Downloads in the background.
-- Groups (today one server is one group), and messages between devices.
+- Groups within a server (today everyone on one server is one group).
 - TAK compatibility (CoT): ATAK and other TAK apps can't join the server's location sharing.
 
 ## Attribution and licenses
