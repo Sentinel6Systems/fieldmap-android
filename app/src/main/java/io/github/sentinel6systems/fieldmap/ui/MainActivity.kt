@@ -689,7 +689,8 @@ class MainActivity : AppCompatActivity() {
             val legs = routeLines.legs(route, ask = !(id == DRAWN && routes.dragging))
             for (leg in legs) {
                 val line = LineString.fromLngLats(leg.line.map(::at))
-                out += part(Feature.fromGeometry(line), "line").apply { addBooleanProperty("dashed", leg.state == LegState.NO_WAY || leg.state == LegState.WAITING) }
+                for ((piece, dashed) in leg.pieces)
+                    out += part(Feature.fromGeometry(LineString.fromLngLats(piece.map(::at))), "line").apply { addBooleanProperty("dashed", dashed) }
                 if (prefs.routeDirection) out += part(Feature.fromGeometry(line), "way")
                 val middle = Routes.along(leg.line, 0.5)
                 if (prefs.routeLegLabels) out += part(Feature.fromGeometry(at(middle)), "leg").apply {

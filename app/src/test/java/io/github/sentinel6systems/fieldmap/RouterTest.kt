@@ -84,5 +84,13 @@ class RouterTest {
             assertTrue(Routes.length(listOf(b, line.last())) < 300)
         }
         assertNull("outside the routing files", router.leg(40.0 to -100.0, 40.1 to -100.1, RouteType.DRIVING.profile!!))
+        // A point out on the water, far from any road: the line ends at the nearest road, and the leg
+        // goes on to the point straight (dashed); the point is not moved.
+        val water = 36.0950 to -114.7800
+        val road = router.leg(a, water, RouteType.DRIVING.profile!!)
+        assertNotNull("to the water", road)
+        val leg = Routes.roadLeg(a, water, road!!)!!
+        assertTrue("${Routes.length(listOf(water, road.last()))} m", leg.offEnd && !leg.offStart)
+        assertEquals(water, leg.line.last())
     }
 }

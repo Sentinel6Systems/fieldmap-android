@@ -633,13 +633,20 @@ class Panels(private val a: MainActivity) {
 
     /** What to say when a route's legs do not (yet) follow roads or trails as its type says; null when they do. */
     private fun routeNote(r: PlannedRoute): String? {
-        val states = a.routeLines.legs(r).map { it.state }
-        return when {
-            LegState.NO_WAY in states -> "Dashed legs are straight: no way was found there, or this device has no routing data for the area. " +
-                "To get it, download an offline area there while connected to the server."
-            LegState.WAITING in states -> "Finding the way…"
-            else -> null
-        }
+        val legs = a.routeLines.legs(r)
+        val states = legs.map { it.state }
+        // The points off the road (one in the middle ends two legs).
+        val offRoad = legs.withIndex().flatMap { (i, l) -> listOfNotNull(i.takeIf { l.offStart }, (i + 1).takeIf { l.offEnd }) }.toSet().size
+        return listOfNotNull(
+            when {
+                LegState.NO_WAY in states -> "Dashed legs are straight: no way was found there, or this device has no routing data for the area. " +
+                    "To get it, download an offline area there while connected to the server."
+                LegState.WAITING in states -> "Finding the way…"
+                else -> null
+            },
+            if (offRoad > 0) "${if (offRoad == 1) "One point is" else "$offRoad points are"} off the roads and trails for this Route Type: " +
+                "the route goes along them to the nearest one, then straight (dashed) to the point." else null,
+        ).joinToString("\n\n").ifEmpty { null }
     }
 
     /** Driving, Walking or Straight Line, for the route being drawn. */

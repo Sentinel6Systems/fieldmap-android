@@ -102,17 +102,22 @@ class RouteEditor(private val a: MainActivity) {
 
     /**
      * A leg was worked out: its ends move onto the road or trail (if they are still where they were,
-     * and by more than half a meter). The leg's line is then the line between them too.
+     * by more than half a meter and at most Routes.ON_ROAD_METERS). A point farther off stays where
+     * it was put: a straight dashed line joins it to the road. The leg's line is then the line
+     * between the new ends too.
      */
     fun snapped(p: Pair<Double, Double>, q: Pair<Double, Double>, legType: RouteType, line: List<Pair<Double, Double>>?) {
         val list = points ?: return
         if (line == null || legType != type || drag != null) return
         val i = (0 until list.size - 1).firstOrNull { list[it] == p && list[it + 1] == q } ?: return
-        fun far(x: Pair<Double, Double>, y: Pair<Double, Double>) = Arrows.inverse(x.first, x.second, y.first, y.second).first > 0.5
-        if (!far(p, line.first()) && !far(q, line.last())) return
-        list[i] = line.first()
-        list[i + 1] = line.last()
-        a.routeLines.alias(type, line.first(), line.last(), line)
+        fun onto(x: Pair<Double, Double>, road: Pair<Double, Double>) =
+            if (Arrows.inverse(x.first, x.second, road.first, road.second).first > 0.5 && !Routes.offRoad(x, road)) road else x
+        val from = onto(p, line.first())
+        val to = onto(q, line.last())
+        if (from == p && to == q) return
+        list[i] = from
+        list[i + 1] = to
+        a.routeLines.alias(type, from, to, line)
         changedNow()
     }
 

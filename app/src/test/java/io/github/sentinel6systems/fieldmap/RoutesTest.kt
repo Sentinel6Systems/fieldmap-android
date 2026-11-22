@@ -9,6 +9,8 @@ import io.github.sentinel6systems.fieldmap.share.Pending
 import io.github.sentinel6systems.fieldmap.share.ShareJson
 import io.github.sentinel6systems.fieldmap.share.ShareMerge
 import io.github.sentinel6systems.fieldmap.share.ShareState
+import io.github.sentinel6systems.fieldmap.ui.LegLine
+import io.github.sentinel6systems.fieldmap.ui.LegState
 import org.junit.Assert.assertNull
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -231,5 +233,28 @@ class RoutesTest {
         // Read back: the points, not the line.
         assertEquals(points, Drawings.fromGeoJson(file.toString(), "#000000", ::id).markers.single().route!!.points)
         assertEquals(3, JSONObject(ShareJson.marker(shared)).getJSONObject("geometry").getJSONArray("coordinates").length())
+    }
+
+    @Test fun aPointOffTheRoadStaysAndADashedLineJoinsIt() {
+        // The road from just by the start (30 m) to 2 km short of the end point.
+        val p = 48.0 to -122.0
+        val q = 48.05 to -122.0
+        val road = listOf(48.0 to -121.9996, 48.02 to -121.9996, 48.032 to -121.9996)
+        val leg = Routes.roadLeg(p, q, road)!!
+        assertFalse(leg.offStart)
+        assertTrue(leg.offEnd)
+        assertEquals(road + listOf(q), leg.line)
+        // Drawn: the road solid, then straight and dashed to the point; the length counts both.
+        val drawn = LegLine(leg.line, LegState.ROUTED, leg.offStart, leg.offEnd)
+        assertEquals(listOf(road to false, listOf(road.last(), q) to true), drawn.pieces)
+        assertTrue(Routes.length(drawn.line) > Routes.length(road) + 1900)
+        // Off at both ends.
+        val both = Routes.roadLeg(48.0 to -122.01, q, road)!!
+        assertEquals(listOf(true, false, true), LegLine(both.line, LegState.ROUTED, both.offStart, both.offEnd).pieces.map { it.second })
+        // Farther than 15 km from any road: no way (drawn straight).
+        assertNull(Routes.roadLeg(p, 48.2 to -122.0, road))
+        // Straight legs and legs not worked out yet are one piece.
+        assertEquals(listOf(listOf(p, q) to true), LegLine(listOf(p, q), LegState.NO_WAY).pieces)
+        assertEquals(listOf(listOf(p, q) to false), LegLine(listOf(p, q), LegState.STRAIGHT).pieces)
     }
 }

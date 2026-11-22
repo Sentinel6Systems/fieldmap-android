@@ -5,6 +5,7 @@ import android.os.Looper
 import io.github.sentinel6systems.fieldmap.data.PlannedRoute
 import io.github.sentinel6systems.fieldmap.data.RouteType
 import io.github.sentinel6systems.fieldmap.geo.Router
+import io.github.sentinel6systems.fieldmap.geo.Routes
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -20,8 +21,22 @@ enum class LegState {
     NO_WAY,
 }
 
-/** One leg of a route as it is drawn, from one of its points to the next (lat to lon). */
-class LegLine(val line: List<Pair<Double, Double>>, val state: LegState)
+/**
+ * One leg of a route as it is drawn, from one of its points to the next (lat to lon). Along a road,
+ * `offStart` / `offEnd`: that point is off any road or trail the Route Type uses, and the line's
+ * first / last part is the straight line from it to the road (Routes.roadLeg).
+ */
+class LegLine(val line: List<Pair<Double, Double>>, val state: LegState, val offStart: Boolean = false, val offEnd: Boolean = false) {
+    /** The parts to draw, each with true when dashed: a straight leg for want of a way, and the straight ends off the road. */
+    val pieces: List<Pair<List<Pair<Double, Double>>, Boolean>> get() {
+        if (state != LegState.ROUTED) return listOf(line to (state != LegState.STRAIGHT))
+        val out = ArrayList<Pair<List<Pair<Double, Double>>, Boolean>>()
+        if (offStart) out += line.subList(0, 2) to true
+        out += line.subList(if (offStart) 1 else 0, line.size - if (offEnd) 1 else 0) to false
+        if (offEnd) out += line.subList(line.size - 2, line.size) to true
+        return out
+    }
+}
 
 /**
  * The lines of routes' legs along roads and trails (geo/Router.kt), worked out one at a time on
@@ -46,7 +61,8 @@ class RouteLines(private val a: MainActivity) {
     fun legs(r: PlannedRoute, ask: Boolean = true): List<LegLine> = r.points.zipWithNext().map { (p, q) ->
         val profile = r.type.profile ?: return@map LegLine(listOf(p, q), LegState.STRAIGHT)
         val k = key(r.type, p, q)
-        if (known.containsKey(k)) known[k]?.let { LegLine(it, LegState.ROUTED) } ?: LegLine(listOf(p, q), LegState.NO_WAY)
+        if (known.containsKey(k)) known[k]?.let { Routes.roadLeg(p, q, it) }?.let { LegLine(it.line, LegState.ROUTED, it.offStart, it.offEnd) }
+            ?: LegLine(listOf(p, q), LegState.NO_WAY)
         else {
             if (ask) ask(k, p, q, r.type, profile)
             LegLine(listOf(p, q), LegState.WAITING)
