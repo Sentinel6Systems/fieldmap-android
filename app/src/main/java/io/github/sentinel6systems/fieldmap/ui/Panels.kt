@@ -474,7 +474,7 @@ class Panels(private val a: MainActivity) {
             add(a.row(m.label.ifEmpty { "Unnamed" }, where + if (m.shared) " · Shared" else "", dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
         }
         add(a.label("Import / Export"))
-        add(a.body("Export markers to a GeoJSON file for use in other map apps. On the Print Map page of the server, open the file with Import Drawings.", muted = true))
+        add(a.body("Export markers to a GeoJSON file for use in other map apps. On the server's map, open the file with Import Drawings.", muted = true))
         add(a.buttons(
             a.button("Export") { a.saveMarkersFile() }.apply { enable(list.isNotEmpty()) },
             a.button("Import") { a.loadMarkersFile() },
