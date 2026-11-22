@@ -12,11 +12,14 @@ gloves. It shows where you are; it does not give turn-by-turn directions.
 - **Offline Areas**: frame an area, choose the detail, check the size and download it.
 - **Your position**: GPS position and accuracy always on screen, in MGRS, UTM or latitude/longitude; follow mode
   with north up or heading up.
-- **Markers**: touch and hold the map to drop one; 12 colors; GeoJSON files shared with the server's Print Map page.
+- **Markers and arrows**: touch and hold the map to drop one; 12 colors; GeoJSON files shared with the server's map.
+- **Routes** along roads and trails, worked out on the device and offline, and **track recording** to GPX.
 - **Remote access**: pair once on the local network, then reach the server over the internet. Encrypted, paired
   devices only, no account, no system VPN. Works through NetBird VPN too, with nothing to set up in the app.
-- **Location Sharing**: see the other devices on the server and share markers, also with the app in the
-  background. Off until you start it.
+- **Location Sharing and Messages**: see the other devices on the server, share markers and routes, and send
+  messages, also with the app in the background. Off until you start it.
+- **Mesh Radio**: pair a Meshtastic radio to keep sharing and messaging with nearby devices when nobody can reach
+  the server.
 
 No account, no advertising, no analytics. The app connects only to the server you set (and its NetBird network, if
 the server owner set one up). It also works with other [TileServer GL](https://github.com/maptiler/tileserver-gl)
