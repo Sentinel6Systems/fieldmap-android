@@ -7,28 +7,36 @@ import androidx.appcompat.app.AlertDialog
 import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.PlannedRoute
 import io.github.sentinel6systems.fieldmap.data.RouteType
+import io.github.sentinel6systems.fieldmap.geo.History
+import io.github.sentinel6systems.fieldmap.geo.RouteEdit
 import io.github.sentinel6systems.fieldmap.geo.Routes
 import org.maplibre.android.geometry.LatLng
 import kotlin.math.hypot
 
 /**
- * New Route and Edit Route: the one way to draw a route and to change its points. While it is
- * open, a tap on the map adds a point at the end; a point dragged moves; the dot in the middle
- * of a leg dragged (or tapped) adds a point there; a point tapped is chosen, for Remove Point.
- * Undo takes back the last change, Done keeps the route, Back leaves it as it was. Its Route
- * Type says how the legs go, and its Route Options what the router is asked for them (as on the
- * map in the browser); a point stays where it was put, and a point off the road or trail is
- * joined to it by a straight dashed line (RouteLines).
+ * New Route and Edit Route: the one way to draw a route and to change its points, as on the map
+ * in the browser. While it is open, a point dragged, or the small dot halfway along a leg as it
+ * is drawn, shows only a dashed line from the points next to it to the finger; when the finger
+ * is lifted, the point moves (or a new point goes on that leg), and only then are its legs worked
+ * out. A tap on the map does nothing, unless Add Points at Start or at End is on: then each tap
+ * is a point there. With Remove Points on, a point tapped goes (a route keeps two). At most one
+ * of the three is on; a new route starts with Add Points at End. Undo takes back the last change,
+ * Done keeps the route, Back leaves it as it was. Its Route Type says how the legs go, and its
+ * Route Options what the router is asked for them; a point stays where it was put, and a point
+ * off the road or trail is joined to it by a straight dashed line (RouteLines).
  */
 class RouteEditor(private val a: MainActivity) {
+    /** What a tap on the map does: nothing (null), a point before the start or after the end, or a point removed. */
+    enum class Tool { START, END, REMOVE }
+
     /** The route's points while it is drawn (lat to lon); null when no route is being drawn. */
     var points: MutableList<Pair<Double, Double>>? = null
         private set
     /** The route being edited; null for a new one. */
     var editing: String? = null
         private set
-    /** The chosen point (its index), for Remove Point. */
-    var chosen: Int? = null
+    /** Add Points at Start, Add Points at End or Remove Points, whichever is on. */
+    var tool: Tool? = null
         private set
     var type = RouteType.STRAIGHT
         private set
@@ -36,18 +44,16 @@ class RouteEditor(private val a: MainActivity) {
     private var options = emptyList<String>()
     private var avoid = ""
     private var alternative = 0
-    private class Step(val points: List<Pair<Double, Double>>, val chosen: Int?, val type: RouteType,
+    private class Step(val points: List<Pair<Double, Double>>, val type: RouteType,
                        val options: List<String>, val avoid: String, val alternative: Int)
-    private val history = ArrayList<Step>()
+    private val history = History<Step>()
 
     /** The route as it is drawn now. */
     val route get() = points?.let { PlannedRoute(it.toList(), type = type, options = options, avoid = avoid, alternative = alternative) }
-    /** A finger moves a point: its legs are not worked out until it is lifted. */
-    val dragging get() = drag?.moved == true
 
     val active get() = points != null
-    val canUndo get() = history.isNotEmpty()
-    val changed get() = history.isNotEmpty()
+    val canUndo get() = history.canUndo
+    val changed get() = history.canUndo
 
     /** Draws a new route (id null) or changes the points of one. */
     fun start(id: String?) {
@@ -59,49 +65,54 @@ class RouteEditor(private val a: MainActivity) {
         avoid = route?.avoid.orEmpty()
         alternative = route?.alternative ?: 0
         editing = id
-        chosen = null
+        // A new route has no points yet: each tap is the next one, until Add Points at End is switched off.
+        tool = if (id == null) Tool.END else null
         history.clear()
         drag = null
         a.routesChanged()
         a.panels.show(Screen.ROUTE)
     }
 
-    /** A tap on the map, not on a point: a new last point there. */
-    fun tap(at: LatLng) {
-        val list = points ?: return
-        if (list.size >= Drawings.MAX_ROUTE_POINTS) {
-            a.toast("A route has at most ${Drawings.MAX_ROUTE_POINTS} points.")
-            return
-        }
-        remember()
-        list += at.latitude to at.longitude
-        chosen = null
-        a.b.map.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-        changedNow()
+    /** Add Points at Start, Add Points at End or Remove Points pressed: on, or off when it was on. */
+    fun switchTool(t: Tool) {
+        if (points == null) return
+        tool = if (tool == t) null else t
+        a.panels.rebuild(Screen.ROUTE)
     }
 
-    fun removeChosen() {
+    /** What the panel says to do now. */
+    val hint: String get() {
+        val n = points?.size ?: 0
+        val name = editing?.let { a.markers.get(it)?.label?.ifEmpty { null } } ?: "the route"
+        val of = "$n of ${Drawings.MAX_ROUTE_POINTS} points."
+        val full = if (n >= Drawings.MAX_ROUTE_POINTS) " The route is full." else ""
+        return when (tool) {
+            Tool.START -> "Tap the map to add points before the start of $name. $of$full"
+            Tool.END -> "Tap the map to add points after the end of $name. $of$full"
+            Tool.REMOVE -> "Tap the points to remove (a route keeps two). $of"
+            null -> "Drag a point to move it, or drag the small dot on a leg to add a point there. $of$full"
+        }
+    }
+
+    /** A tap on the map, not on a point: with Add Points on, a new point at the start or the end there. */
+    fun tap(at: LatLng) {
         val list = points ?: return
-        val i = chosen ?: return
-        remember()
-        list.removeAt(i)
-        chosen = null
-        changedNow()
+        val start = when (tool) { Tool.START -> true; Tool.END -> false; else -> return }
+        val now = RouteEdit.add(list, at.latitude to at.longitude, start) ?: return full()
+        change(now)
     }
 
     fun undo() {
         val list = points ?: return
-        val step = history.removeLastOrNull() ?: return
+        val step = history.undo() ?: return
         list.clear()
         list += step.points
-        chosen = step.chosen?.takeIf { it < list.size }
         type = step.type
         options = step.options
         avoid = step.avoid
         alternative = step.alternative
         changedNow()
     }
-
     /** Another Route Type; new routes start with the last one used. Route Options the new type does not have are dropped. */
     fun changeType(to: RouteType) {
         if (points == null || to == type) return
@@ -177,28 +188,44 @@ class RouteEditor(private val a: MainActivity) {
 
     private fun close() {
         points = null
-        chosen = null
+        tool = null
         history.clear()
         drag = null
+        a.preview(emptyList())
         a.routesChanged()
     }
 
     private fun remember() {
-        points?.let { history += Step(it.toList(), chosen, type, options, avoid, alternative) }
+        points?.let { history.remember(Step(it.toList(), type, options, avoid, alternative)) }
     }
+
+    /** The points are now `now`: kept for Undo, and the legs worked out. */
+    private fun change(now: List<Pair<Double, Double>>) {
+        val list = points ?: return
+        remember()
+        list.clear()
+        list += now
+        a.b.map.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        changedNow()
+    }
+
+    private fun full() = a.toast("A route has at most ${Drawings.MAX_ROUTE_POINTS} points.")
 
     private fun changedNow() {
         a.routesChanged()
         a.panels.rebuild(Screen.ROUTE)
     }
 
-    /* ---------- a finger on a point or on the middle of a leg ---------- */
+    /* ---------- a finger on a point or on the dot of a leg ---------- */
 
-    /** What a finger holds: a point, or the middle of the leg after point `index`. */
-    private class Drag(val middle: Boolean, var index: Int, val x: Float, val y: Float) { var moved = false }
+    /** What a finger holds: point `index`, or the dot of the leg after point `index`. */
+    private class Drag(val dot: Boolean, val index: Int, val x: Float, val y: Float) { var moved = false }
     private var drag: Drag? = null
 
-    /** Watches a finger on the map while a route is drawn. Returns true while it holds a point (the map then does not see it). */
+    /**
+     * Watches a finger on the map while a route is drawn. Returns true while it holds a point or a
+     * dot (the map then does not see it). The route does not change until the finger is lifted.
+     */
     fun touch(e: MotionEvent): Boolean {
         val list = points ?: return false
         val map = a.map ?: return false
@@ -211,65 +238,53 @@ class RouteEditor(private val a: MainActivity) {
                 val d = drag ?: return false
                 if (!d.moved) {
                     if (hypot(e.x - d.x, e.y - d.y) < a.dp(8)) return true
+                    if (d.dot && list.size >= Drawings.MAX_ROUTE_POINTS) { drag = null; full(); return true }
                     d.moved = true
-                    remember()
-                    if (d.middle) {
-                        if (list.size >= Drawings.MAX_ROUTE_POINTS) {
-                            history.removeLastOrNull()
-                            drag = null
-                            a.toast("A route has at most ${Drawings.MAX_ROUTE_POINTS} points.")
-                            return true
-                        }
-                        list.add(d.index + 1, list[d.index])
-                        d.index++
-                    }
-                    chosen = null
                 }
                 val at = map.projection.fromScreenLocation(PointF(e.x, e.y))
-                list[d.index] = at.latitude to at.longitude
-                a.routesChanged()
+                a.preview(RouteEdit.neighbors(list, d.index, d.dot).map { listOf(LatLng(it.first, it.second), at) })
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 val d = drag ?: return false
                 drag = null
-                if (!d.moved) {
-                    // A tap: on a point, it is chosen (or no longer); on the middle of a leg, a point there.
-                    if (d.middle) {
-                        if (list.size >= Drawings.MAX_ROUTE_POINTS) { a.toast("A route has at most ${Drawings.MAX_ROUTE_POINTS} points."); return true }
-                        remember()
-                        list.add(d.index + 1, middleOf(d.index))
-                        chosen = null
-                    } else {
-                        chosen = if (chosen == d.index) null else d.index
-                    }
+                a.preview(emptyList())
+                val at = map.projection.fromScreenLocation(PointF(e.x, e.y)).let { it.latitude to it.longitude }
+                if (d.moved) {
+                    // Let go: the point moves, or a new one goes on the leg; now its legs are worked out.
+                    val now = if (d.dot) RouteEdit.insert(list, d.index, at) else RouteEdit.move(list, d.index, at)
+                    if (now == null) full() else change(now)
+                } else when (tool) {
+                    // A tap: with Remove Points, a point goes; with Add Points, a point there all the same
+                    // (a finger is wide). Otherwise a point or a dot tapped does nothing.
+                    Tool.REMOVE -> if (!d.dot) RouteEdit.remove(list, d.index)?.let(::change)
+                        ?: a.toast("A route keeps at least ${RouteEdit.MIN_POINTS} points.")
+                    Tool.START, Tool.END -> tap(LatLng(at.first, at.second))
+                    null -> {}
                 }
-                a.b.map.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                changedNow()
                 return true
             }
             else -> {                               // a second finger, or the system took the touch
-                val d = drag ?: return false
+                drag ?: return false
                 drag = null
-                if (d.moved) changedNow()
+                a.preview(emptyList())
                 return true
             }
         }
     }
 
-    /** The point or leg middle under a finger at (x, y), the nearest one, or null. */
+    /** The point or leg dot under a finger at (x, y), the nearest one, or null. Points come first. */
     private fun grab(list: List<Pair<Double, Double>>, x: Float, y: Float): Drag? {
         val projection = a.map?.projection ?: return null
         fun far(p: Pair<Double, Double>) = projection.toScreenLocation(LatLng(p.first, p.second)).let { hypot(it.x - x, it.y - y) }
         val point = list.indices.minByOrNull { far(list[it]) }?.takeIf { far(list[it]) < a.dp(26) }
         if (point != null) return Drag(false, point, x, y)
-        val middle = (0 until list.size - 1).minByOrNull { far(middleOf(it)) }?.takeIf { far(middleOf(it)) < a.dp(22) }
-        return middle?.let { Drag(true, it, x, y) }
+        val dots = dots()
+        val dot = dots.indices.minByOrNull { far(dots[it]) }?.takeIf { far(dots[it]) < a.dp(22) }
+        return dot?.let { Drag(true, it, x, y) }
     }
 
-    /** The middle of leg i as it is drawn (along the road when it follows one). */
-    fun middleOf(i: Int): Pair<Double, Double> {
-        val legs = route?.let { a.routeLines.legs(it, ask = false) } ?: return 0.0 to 0.0
-        return Routes.along(legs[i].line, 0.5)
-    }
+    /** The dot of each leg: halfway along it as it is drawn (along the road when it follows one, with its dashed ends). */
+    fun dots(): List<Pair<Double, Double>> =
+        route?.let { r -> a.routeLines.legs(r, ask = false).map { Routes.halfway(it.line) } }.orEmpty()
 }

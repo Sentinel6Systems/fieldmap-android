@@ -130,6 +130,11 @@ legs failed at once, without routing data), and Rename and Delete Group with sha
 0.2.1: the unit tests pass, including that BRouter's walking profile reads Use Any Road or Trail
 (shortest_way). The longer limit per leg (60 seconds) and the new option are not yet tried on a device.
 
+0.2.2: Edit Route works as on the server's map. 197 unit tests pass, including the new point-list rules (add at
+either end, insert on a leg, move, remove, undo, at least 2 and at most 30 points) and the dot halfway along the
+leg as drawn. On an emulator: the dots on a drawn line, the dashed preview while dragging with the legs worked out
+only on release, the Add Points and Remove Points toggles, Undo, Back and Done.
+
 ## Not tested yet
 
 A server whose Wi-Fi has no internet, a download of several gigabytes, a long drive or hike, and

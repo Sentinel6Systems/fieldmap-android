@@ -50,6 +50,12 @@ object Routes {
         return line.last()
     }
 
+    /**
+     * The point halfway along a line (lat to lon) as it is drawn: a leg's line along the roads,
+     * with the straight pieces off the road at its ends, not the middle between its two points.
+     */
+    fun halfway(line: List<Pair<Double, Double>>): Pair<Double, Double> = along(line, 0.5)
+
     /** The way a line (lat to lon) goes `fraction` (0-1) of the way along it: the bearing of its piece there. */
     fun bearingAt(line: List<Pair<Double, Double>>, fraction: Double): Double {
         val legs = legs(line).filter { it.meters > 0 }

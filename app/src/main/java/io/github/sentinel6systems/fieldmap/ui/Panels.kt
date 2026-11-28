@@ -768,13 +768,15 @@ class Panels(private val a: MainActivity) {
             .show()
     }
 
-    /** New Route and Edit Route: how it works, its Route Type, how far, and Undo, Remove Point, Done. */
+    /**
+     * New Route and Edit Route: what to do now, its Route Type, how far, Add Points at Start, Add
+     * Points at End and Remove Points (switches: the one that is on is shown so), Undo and Done.
+     */
     private fun route() {
         val route = a.routes.route ?: return
         val points = route.points
         routeShown = routeLook(route)
-        add(a.body("Tap the map to add a point. Drag a point to move it. Drag the dot between two points to add a point there. " +
-            "Tap a point to select it.", muted = true, top = 12))
+        add(a.body(a.routes.hint, muted = true, top = 12))
         add(a.row("Route Type", route.type.title) { chooseType() }.apply { layoutParams = lp(top = a.dp(6)) })
         if (route.type.profile != null) routeOptions(route)
         val mph = a.routes.editing?.let { a.markers.get(it) }?.route?.mph ?: route.type.mph
@@ -782,13 +784,18 @@ class Panels(private val a: MainActivity) {
             0 -> "No points"
             1 -> "1 point"
             else -> "${points.size} points · " + a.routeDetail(route.copy(mph = mph))
-        } + (a.routes.chosen?.let { " · Point ${it + 1} selected" } ?: "")
+        }
         add(a.mono(summary, 15f, muted = false).apply { setPadding(0, a.dp(10), 0, 0) })
         routeNote(route)?.let { add(a.body(it, muted = true, top = 6)) }
+        fun tool(title: String, t: RouteEditor.Tool) = a.button(title) { a.routes.switchTool(t) }.apply {
+            isSelected = a.routes.tool == t
+            if (isSelected) setTextColor(a.color(R.color.sig))
+        }
+        add(a.buttons(tool("Add Points at Start", RouteEditor.Tool.START), tool("Add Points at End", RouteEditor.Tool.END), top = 14))
         add(a.buttons(
+            tool("Remove Points", RouteEditor.Tool.REMOVE),
             a.button("Undo") { a.routes.undo() }.apply { enable(a.routes.canUndo) },
-            a.button("Remove Point") { a.routes.removeChosen() }.apply { enable(a.routes.chosen != null) },
-            top = 14,
+            top = 10,
         ))
         add(a.button("Done", Kind.PRIMARY) { a.routes.finish() }.apply { layoutParams = lp(top = a.dp(10)); enable(points.size >= 2) })
     }

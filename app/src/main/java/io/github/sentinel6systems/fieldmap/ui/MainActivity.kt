@@ -443,7 +443,8 @@ class MainActivity : AppCompatActivity() {
             lineJoin(Property.LINE_JOIN_ROUND)).withFilter(headPart))
         add(LineLayer(ARROW_HEADS, ARROWS).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineCap(Property.LINE_CAP_ROUND),
             lineJoin(Property.LINE_JOIN_ROUND)).withFilter(headPart))
-        // While an arrow is being drawn: a dashed line from where the finger held to where it is.
+        // While an arrow is being drawn: a dashed line from where the finger held to where it is. While
+        // a route's point or dot is dragged: dashed lines from the points next to it to the finger.
         add(LineLayer("fm-drag", DRAG).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineDasharray(arrayOf(2f, 1.5f))))
         // Recorded tracks: a line in the colour with a white halo, a dot where it starts; the one
         // being recorded in the warning colour.
@@ -457,7 +458,7 @@ class MainActivity : AppCompatActivity() {
             circleStrokeWidth(3f)).withFilter(trackPart("start")))
         // Routes: a line in the colour with a white halo, as the arrows, small chevrons along it the
         // way it goes, a dot where it starts; its points (numbered) while it is chosen or drawn, and
-        // while it is drawn the dots in the middle of its legs.
+        // while it is drawn a small dot halfway along each leg.
         st.addImage(CHEVRON, chevronSymbol(), true)
         st.addSource(GeoJsonSource(ROUTES, routesOnMap()))
         fun part(name: String) = Expression.eq(Expression.get("part"), Expression.literal(name))
@@ -474,11 +475,11 @@ class MainActivity : AppCompatActivity() {
             iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP)).withFilter(part("way")))
         add(CircleLayer("fm-routes-start", ROUTES).withProperties(circleRadius(5f), circleColor(Color.WHITE), circleStrokeColor(Expression.get("color")),
             circleStrokeWidth(3f)).withFilter(part("start")))
-        add(CircleLayer("fm-routes-middle", ROUTES).withProperties(circleRadius(6f), circleColor(Color.WHITE), circleOpacity(0.9f),
-            circleStrokeColor(Expression.get("color")), circleStrokeWidth(2f)).withFilter(part("middle")))
+        // Edit Route: a small dot halfway along each leg; drag it for a new point there.
+        add(CircleLayer("fm-routes-dot", ROUTES).withProperties(circleRadius(5f), circleColor(Color.WHITE),
+            circleStrokeColor(Expression.get("color")), circleStrokeWidth(2f)).withFilter(part("dot")))
         add(CircleLayer("fm-routes-point", ROUTES).withProperties(circleRadius(11f), circleColor(Color.WHITE),
-            circleStrokeColor(Expression.switchCase(Expression.toBool(Expression.get("chosen")), Expression.literal(hex(R.color.sig)), Expression.get("color"))),
-            circleStrokeWidth(Expression.switchCase(Expression.toBool(Expression.get("chosen")), Expression.literal(5f), Expression.literal(3f)))).withFilter(part("point")))
+            circleStrokeColor(Expression.get("color")), circleStrokeWidth(3f)).withFilter(part("point")))
         // The dots of the print tool: the colour, a white edge; a thin dark line keeps a white
         // dot visible on a white map.
         add(CircleLayer("fm-markers-ring", MARKERS).withProperties(circleRadius(12.5f), circleColor("#111111"), circleOpacity(0.55f)))
@@ -750,7 +751,7 @@ class MainActivity : AppCompatActivity() {
     /**
      * The routes: each leg's line (dashed while it is not along the roads or trails its type says),
      * chevrons, start (with the name), legs' lengths; the points of the chosen one; and the one being
-     * drawn, with the middles of its legs. Each part as the settings say.
+     * drawn, with a small dot halfway along each leg as it is drawn. Each part as the settings say.
      */
     private fun routesOnMap(): FeatureCollection {
         val drawn = routes.route
@@ -763,26 +764,22 @@ class MainActivity : AppCompatActivity() {
             fun part(f: Feature, name: String) = f.apply { addStringProperty("id", id); addStringProperty("color", color); addStringProperty("part", name) }
             fun at(p: Pair<Double, Double>) = Point.fromLngLat(p.second, p.first)
             val out = ArrayList<Feature>()
-            // While a finger moves a point, legs are not worked out: drawn straight until it is lifted.
-            val legs = routeLines.legs(route, ask = !(id == DRAWN && routes.dragging))
+            val legs = routeLines.legs(route)
             for (leg in legs) {
                 val line = LineString.fromLngLats(leg.line.map(::at))
                 for ((piece, dashed) in leg.pieces)
                     out += part(Feature.fromGeometry(LineString.fromLngLats(piece.map(::at))), "line").apply { addBooleanProperty("dashed", dashed) }
                 if (prefs.routeDirection) out += part(Feature.fromGeometry(line), "way")
-                val middle = Routes.along(leg.line, 0.5)
+                val middle = Routes.halfway(leg.line)
                 if (prefs.routeLegLabels) out += part(Feature.fromGeometry(at(middle)), "leg").apply {
                     addStringProperty("label", distanceText(Routes.length(leg.line)))
                     addNumberProperty("rotate", Arrows.labelAngle(Routes.bearingAt(leg.line, 0.5)))
                 }
-                if (id == DRAWN) out += part(Feature.fromGeometry(at(middle)), "middle")
+                if (id == DRAWN) out += part(Feature.fromGeometry(at(middle)), "dot")
             }
             if (points.isNotEmpty() && id != DRAWN) out += part(Feature.fromGeometry(at(points[0])), "start").apply { addStringProperty("label", label) }
             if (id == DRAWN || id == selected) points.forEachIndexed { i, p ->
-                out += part(Feature.fromGeometry(at(p)), "point").apply {
-                    addStringProperty("n", "${i + 1}")
-                    addBooleanProperty("chosen", id == DRAWN && i == routes.chosen)
-                }
+                out += part(Feature.fromGeometry(at(p)), "point").apply { addStringProperty("n", "${i + 1}") }
             }
             out
         })
@@ -1412,7 +1409,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Watches a finger on the map. Returns true while it draws (the map then does not see it). */
     private fun watchHold(e: MotionEvent): Boolean {
-        // While a route is drawn, a finger on one of its points moves it; the hold does nothing.
+        // While a route is drawn, a finger on one of its points or dots drags it; the hold does nothing.
         if (panels.screen == Screen.ROUTE) return routes.touch(e)
         val start = holdSpot
         when (e.actionMasked) {
@@ -1457,10 +1454,16 @@ class MainActivity : AppCompatActivity() {
         style?.getSourceAs<GeoJsonSource>(DRAG)?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
     }
 
-    private fun drawDrag(from: LatLng, to: LatLng) {
-        val line = Feature.fromGeometry(LineString.fromLngLats(listOf(Point.fromLngLat(from.longitude, from.latitude), Point.fromLngLat(to.longitude, to.latitude))))
-        line.addStringProperty("color", prefs.color)
-        style?.getSourceAs<GeoJsonSource>(DRAG)?.setGeoJson(FeatureCollection.fromFeature(line))
+    private fun drawDrag(from: LatLng, to: LatLng) = drawLines(listOf(listOf(from, to)), prefs.color)
+
+    /** While a route's point or dot is dragged: dashed lines in the route's color (none: the preview goes). */
+    internal fun preview(lines: List<List<LatLng>>) = drawLines(lines, routes.editing?.let(markers::get)?.color ?: prefs.color)
+
+    private fun drawLines(lines: List<List<LatLng>>, color: String) {
+        val features = lines.map { l ->
+            Feature.fromGeometry(LineString.fromLngLats(l.map { Point.fromLngLat(it.longitude, it.latitude) })).apply { addStringProperty("color", color) }
+        }
+        style?.getSourceAs<GeoJsonSource>(DRAG)?.setGeoJson(FeatureCollection.fromFeatures(features))
     }
 
     /** A new arrow from where the finger held to where it was lifted. */
@@ -1475,7 +1478,7 @@ class MainActivity : AppCompatActivity() {
         val m = map ?: return false
         if (panels.screen == Screen.SAVE) return false
         val p = m.projection.toScreenLocation(at)
-        // While a route is drawn, a tap is its next point.
+        // While a route is drawn, a tap is a new point with Add Points on, and otherwise nothing.
         if (panels.screen == Screen.ROUTE) { routes.tap(spotAt(p) ?: at); return true }
         // After Move in a marker's panel, the next tap is the marker's new position.
         if (panels.screen == Screen.MOVE) {

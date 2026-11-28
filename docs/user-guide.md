@@ -188,8 +188,8 @@ it out on the device, so it also works offline.
 > 2"), and keep them in the same group.
 
 1. Go to **Menu** › **Markers** › **New Route**.
-2. Tap the map to add each point, in order. Drag a point to move it. Drag the dot between two points to add a point
-   there. Tap a point to select it, then **Remove Point** to take it out. **Undo** reverses the last change.
+2. **Add Points at End** is on: tap the map to add each point, in order. Change the points as in **Edit a route**
+   below.
 3. Tap **Route Type** to choose **Driving**, **Walking**, **Bicycle** or **Straight Line**.
 4. Optional: set the **Route Options** (see below).
 5. Press **Done**.
@@ -210,7 +210,21 @@ the same roads on every device:
 
 Tap the route to see its panel: **Route Type** with the options that are set, **Distance and Time** (set the **Speed** for the time estimate),
 **Legs** with each leg's distance and bearing, **Start** and **End**. **Edit Route** changes it again; **Delete**
-removes it. Leaving the editor without **Done** asks **Discard Changes?**.
+removes it.
+
+**Edit a route:** press **Edit Route** in its panel.
+
+- **Move a point:** drag it. A dashed line follows your finger; the route is worked out again when you lift it.
+- **Add a point between two:** each leg has a small dot halfway along it. Drag the dot to where the new point
+  goes, and lift your finger.
+- **Add points at the start or the end:** press **Add Points at Start** or **Add Points at End**, then tap the map
+  for each point. Press the button again to stop.
+- **Remove points:** press **Remove Points**, then tap each point to remove. A route keeps at least two.
+- **Undo** takes back the last change, **Done** keeps the route, and **Back** puts it back as it was (the app asks
+  **Discard Changes?** first).
+
+A tap on the map does nothing while you edit, unless you pressed Add Points first. The button that is on has a
+green edge, and the text above the buttons says what a tap does now.
 
 Legs along roads and trails are solid. Points stay where you put them: a point off a road or trail gets a line
 along the road to the nearest place the route can reach, then a dashed straight line to the point. The panel counts
