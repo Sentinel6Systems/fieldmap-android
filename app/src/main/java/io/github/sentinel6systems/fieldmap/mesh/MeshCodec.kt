@@ -66,7 +66,12 @@ object MeshCodec {
         return MeshMessage.ADAPTER.encode(if (m.isArrow) MeshMessage(arrow = body) else MeshMessage(marker = body))
     }
 
-    /** A route: without its name when it would not fit, null when even that does not fit (points far apart). */
+    /**
+     * A route: without its avoided group when it would not fit, then also without its name; null
+     * when even that does not fit (points far apart). The group goes first: a device on the mesh
+     * alone does not know which items are in a group (the mesh does not carry groups), so it could
+     * seldom avoid them anyway, while the name is what everybody sees.
+     */
     private fun route(m: Marker, r: PlannedRoute): ByteArray? {
         val steps = ArrayList<Int>()
         var (lat, lon) = fine(r.points[0].first) to fine(r.points[0].second)
@@ -77,16 +82,21 @@ object MeshCodec {
             lat = qLat
             lon = qLon
         }
-        fun encode(label: String) = MeshMessage.ADAPTER.encode(MeshMessage(route = MeshRoute(
+        val options = Routes.cleanOptions(r.type, r.options).sumOf { 1 shl OPTIONS.indexOf(it) }
+        fun encode(label: String, avoid: String) = MeshMessage.ADAPTER.encode(MeshMessage(route = MeshRoute(
             id = m.id, label = label, color = rgb(m.color), updated = (ShareJson.millis(m.updated) / 1000).toInt(),
             by_ = if (m.by.isEmpty()) ByteString.EMPTY else uidBytes(m.by),
             lat = degrees(r.points[0].first), lon = degrees(r.points[0].second), steps = steps, mph = r.mph, type = TYPES.indexOf(r.type),
+            options = options, alternative = r.alternative.takeIf { it in 1..3 } ?: 0, avoid = avoid,
         )))
-        return encode(m.label).takeIf { it.size <= MAX_PAYLOAD } ?: encode("").takeIf { it.size <= MAX_PAYLOAD }
+        return listOf(m.label to r.avoid, m.label to "", "" to "").firstNotNullOfOrNull { (label, avoid) -> encode(label, avoid).takeIf { it.size <= MAX_PAYLOAD } }
     }
 
     /** A route's type as a number on the mesh: its place here (a number not known here: straight). */
-    private val TYPES = listOf(RouteType.STRAIGHT, RouteType.DRIVING, RouteType.WALKING)
+    private val TYPES = listOf(RouteType.STRAIGHT, RouteType.DRIVING, RouteType.WALKING, RouteType.BICYCLE)
+
+    /** A route's options on the mesh: bit n is the option at place n here. */
+    private val OPTIONS = listOf("avoid-highways", "dirt-tracks", "avoid-towns", "fuel-saver", "avoid-steps", "avoid-wet", "easy", "hard")
 
     /** Degrees * 1e5, as a route's steps count them. */
     private fun fine(v: Double) = Math.round(v * 1e5).toInt()
@@ -141,9 +151,12 @@ object MeshCodec {
         if (points.size !in 2..Drawings.MAX_ROUTE_POINTS || points.any { abs(it.first) > 90 || abs(it.second) > 180 }) return null
         val at = ShareJson.time((r.updated.toLong() and 0xffffffffL) * 1000)
         val mph = r.mph.takeIf { it in Routes.SPEEDS } ?: Routes.DEFAULT_MPH
+        val type = TYPES.getOrNull(r.type) ?: RouteType.STRAIGHT
+        // Options are dropped as from a file: only those of its type, Easy when both difficulties are set.
+        val options = Routes.cleanOptions(type, OPTIONS.filterIndexed { i, _ -> r.options and (1 shl i) != 0 })
         val m = Marker(r.id, 0.0, 0.0, r.label.filterNot { it.isISOControl() }.trim().take(Drawings.MAX_LABEL),
             "#%06x".format(r.color and 0xffffff), shared = true, updated = at, by = uidText(r.by_).orEmpty(),
-            route = PlannedRoute(listOf(0.0 to 0.0), mph, TYPES.getOrNull(r.type) ?: RouteType.STRAIGHT)).withPoints(points)
+            route = PlannedRoute(listOf(0.0 to 0.0), mph, type, options, Drawings.groupName(r.avoid), r.alternative.takeIf { it in 1..3 } ?: 0)).withPoints(points)
         return MeshMarkerChange(r.id, m, at)
     }
 

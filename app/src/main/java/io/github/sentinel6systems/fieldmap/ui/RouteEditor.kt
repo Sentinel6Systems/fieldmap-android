@@ -16,8 +16,9 @@ import kotlin.math.hypot
  * open, a tap on the map adds a point at the end; a point dragged moves; the dot in the middle
  * of a leg dragged (or tapped) adds a point there; a point tapped is chosen, for Remove Point.
  * Undo takes back the last change, Done keeps the route, Back leaves it as it was. Its Route
- * Type says how the legs go; a point stays where it was put, and a point off the road or trail
- * is joined to it by a straight dashed line (RouteLines).
+ * Type says how the legs go, and its Route Options what the router is asked for them (as on the
+ * map in the browser); a point stays where it was put, and a point off the road or trail is
+ * joined to it by a straight dashed line (RouteLines).
  */
 class RouteEditor(private val a: MainActivity) {
     /** The route's points while it is drawn (lat to lon); null when no route is being drawn. */
@@ -31,11 +32,16 @@ class RouteEditor(private val a: MainActivity) {
         private set
     var type = RouteType.STRAIGHT
         private set
-    private class Step(val points: List<Pair<Double, Double>>, val chosen: Int?, val type: RouteType)
+    /** Its Route Options (keys of Routes.OPTIONS and DIFFICULTY), the group whose items it avoids ("": none), its Way (0 to 3). */
+    private var options = emptyList<String>()
+    private var avoid = ""
+    private var alternative = 0
+    private class Step(val points: List<Pair<Double, Double>>, val chosen: Int?, val type: RouteType,
+                       val options: List<String>, val avoid: String, val alternative: Int)
     private val history = ArrayList<Step>()
 
     /** The route as it is drawn now. */
-    val route get() = points?.let { PlannedRoute(it.toList(), type = type) }
+    val route get() = points?.let { PlannedRoute(it.toList(), type = type, options = options, avoid = avoid, alternative = alternative) }
     /** A finger moves a point: its legs are not worked out until it is lifted. */
     val dragging get() = drag?.moved == true
 
@@ -49,6 +55,9 @@ class RouteEditor(private val a: MainActivity) {
         if (id != null && route == null) return
         points = route?.points.orEmpty().toMutableList()
         type = route?.type ?: a.prefs.routeType
+        options = route?.options.orEmpty()
+        avoid = route?.avoid.orEmpty()
+        alternative = route?.alternative ?: 0
         editing = id
         chosen = null
         history.clear()
@@ -87,15 +96,52 @@ class RouteEditor(private val a: MainActivity) {
         list += step.points
         chosen = step.chosen?.takeIf { it < list.size }
         type = step.type
+        options = step.options
+        avoid = step.avoid
+        alternative = step.alternative
         changedNow()
     }
 
-    /** Another Route Type; new routes start with the last one used. */
+    /** Another Route Type; new routes start with the last one used. Route Options the new type does not have are dropped. */
     fun changeType(to: RouteType) {
         if (points == null || to == type) return
         remember()
         type = to
+        options = Routes.cleanOptions(to, options)
         a.prefs.routeType = to
+        changedNow()
+    }
+
+    /** A Route Option switched on or off. */
+    fun setOption(key: String, on: Boolean) {
+        if (points == null || (key in options) == on) return
+        remember()
+        options = Routes.cleanOptions(type, if (on) options + key else options - key)
+        changedNow()
+    }
+
+    /** Trail Difficulty: "easy", "hard", or "" (Moderate). */
+    fun setDifficulty(key: String) {
+        val now = Routes.cleanOptions(type, options.filter { it != "easy" && it != "hard" } + listOfNotNull(key.ifEmpty { null }))
+        if (points == null || now == options) return
+        remember()
+        options = now
+        changedNow()
+    }
+
+    /** Avoid Areas In: a group's name, or "" for No Group. */
+    fun setAvoid(group: String) {
+        if (points == null || group == avoid) return
+        remember()
+        avoid = group
+        changedNow()
+    }
+
+    /** Way: 0 the best, 1 to 3 the router's second to fourth. */
+    fun setWay(n: Int) {
+        if (points == null || n == alternative || n !in Routes.WAYS.indices) return
+        remember()
+        alternative = n
         changedNow()
     }
 
@@ -105,12 +151,15 @@ class RouteEditor(private val a: MainActivity) {
         val id = editing
         close()
         val type = type
+        val (options, avoid, alternative) = Triple(options, avoid, alternative)
         if (id == null) {
-            val m = a.markers.addRoute(list, a.prefs.color, type)
+            val m = a.markers.addRoute(list, a.prefs.color, type, options, avoid, alternative)
             a.markersChanged()
             a.openMarker(m.id, fromList = true)
         } else {
-            a.markers.get(id)?.let { m -> m.route?.let { a.updateMarker(m.copy(route = it.copy(type = type)).withPoints(list)) } }
+            a.markers.get(id)?.let { m ->
+                m.route?.let { a.updateMarker(m.copy(route = it.copy(type = type, options = options, avoid = avoid, alternative = alternative)).withPoints(list)) }
+            }
             a.panels.show(Screen.MARKER)
         }
     }
@@ -135,7 +184,7 @@ class RouteEditor(private val a: MainActivity) {
     }
 
     private fun remember() {
-        points?.let { history += Step(it.toList(), chosen, type) }
+        points?.let { history += Step(it.toList(), chosen, type, options, avoid, alternative) }
     }
 
     private fun changedNow() {

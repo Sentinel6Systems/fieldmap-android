@@ -1,6 +1,9 @@
 package io.github.sentinel6systems.fieldmap.ui
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.util.TypedValue
+import android.widget.ImageView
 import android.graphics.Color
 import android.view.Gravity
 import android.view.KeyEvent
@@ -16,6 +19,7 @@ import androidx.core.widget.doAfterTextChanged
 import io.github.sentinel6systems.fieldmap.BuildConfig
 import io.github.sentinel6systems.fieldmap.R
 import io.github.sentinel6systems.fieldmap.data.Drawings
+import io.github.sentinel6systems.fieldmap.data.GroupState
 import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.Message
 import io.github.sentinel6systems.fieldmap.data.MessageRoute
@@ -28,6 +32,7 @@ import io.github.sentinel6systems.fieldmap.data.RouteType
 import io.github.sentinel6systems.fieldmap.geo.CoordFormat
 import io.github.sentinel6systems.fieldmap.geo.Coords
 import io.github.sentinel6systems.fieldmap.geo.Routes
+import io.github.sentinel6systems.fieldmap.geo.Shapes
 import io.github.sentinel6systems.fieldmap.mesh.MeshNode
 import io.github.sentinel6systems.fieldmap.mesh.MeshRadio
 import io.github.sentinel6systems.fieldmap.mesh.MeshShare
@@ -66,6 +71,7 @@ enum class Screen(val title: String, val parent: Screen?) {
     SAVE("Download Area", AREAS),
     MARKERS("Markers", MENU),
     MARKER("Marker", null),
+    SHAPE("Shape", null),
     MOVE("Move Marker", MARKER),
     ROUTE("New Route", MARKERS),
     RECORD("Track Recording", MENU),
@@ -88,6 +94,7 @@ class Panels(private val a: MainActivity) {
         private set
     private val body get() = a.b.panelBody
     private var markerFromList = false
+    private var shapeFromList = false
     private var markerShare: View? = null
 
     // The Save screen's moving parts.
@@ -121,6 +128,7 @@ class Panels(private val a: MainActivity) {
 
     fun back() = show(when {
         screen == Screen.MARKER && markerFromList -> Screen.MARKERS
+        screen == Screen.SHAPE && shapeFromList -> Screen.MARKERS
         screen == Screen.PEER && peerFromList -> Screen.SHARING
         screen == Screen.NODE && nodeFromList -> Screen.MESH
         screen == Screen.CHAT -> if (chatFromPeer) Screen.PEER else Screen.MESSAGES
@@ -132,6 +140,11 @@ class Panels(private val a: MainActivity) {
     fun showMarker(fromList: Boolean) {
         markerFromList = fromList
         show(Screen.MARKER)
+    }
+
+    fun showShape(fromList: Boolean) {
+        shapeFromList = fromList
+        show(Screen.SHAPE)
     }
 
     /** The conversation with `partner` (a uid, or Message.EVERYONE); from a person's panel, Back leads there. */
@@ -180,10 +193,11 @@ class Panels(private val a: MainActivity) {
             next == Screen.ROUTE -> if (a.routes.editing != null) "Edit Route" else next.title
             next == Screen.MARKER && chosen?.isRoute == true -> "Route"
             next == Screen.MARKER && chosen?.isTrack == true -> "Track"
+            next == Screen.SHAPE -> a.selectedShape?.let { a.shapes.get(it) }?.let { Shapes.name(it) } ?: next.title
             (next == Screen.MARKER || next == Screen.MOVE) && chosen?.isArrow == true -> if (next == Screen.MARKER) "Arrow" else "Move Arrow"
             else -> next.title
         }
-        val hasBack = next.parent != null || (next == Screen.MARKER && markerFromList) || (next == Screen.PEER && peerFromList) ||
+        val hasBack = next.parent != null || (next == Screen.MARKER && markerFromList) || (next == Screen.SHAPE && shapeFromList) || (next == Screen.PEER && peerFromList) ||
             (next == Screen.NODE && nodeFromList) || next == Screen.CHAT
         a.b.panelBack.visibility = if (hasBack) View.VISIBLE else View.GONE
         a.b.panelTitle.setPadding(if (hasBack) 0 else a.dp(16), 0, 0, 0)
@@ -207,6 +221,8 @@ class Panels(private val a: MainActivity) {
                 if (m.route != null && routeLook(m.route) != routeShown) build() else (markerShare?.tag as? TextView)?.text = shareDetail(m)
             }
             Screen.ROUTE -> a.routes.route?.let { if (routeLook(it) != routeShown) build() }
+            // A shape another device deleted: its panel goes.
+            Screen.SHAPE -> if (a.selectedShape?.let { a.shapes.get(it) } == null) back() else build()
             Screen.RECORD -> build()
             Screen.SERVER -> if (!serverBusy) { serverText?.text = serverState(); if (a.remoteNow || !a.reachable) remoteSection(null) }
             else -> {}
@@ -225,6 +241,7 @@ class Panels(private val a: MainActivity) {
             Screen.SAVE -> save()
             Screen.MARKERS -> markers()
             Screen.MARKER -> marker()
+            Screen.SHAPE -> shape()
             Screen.ROUTE -> route()
             Screen.MOVE -> add(a.body(when {
                 a.selected?.let { a.markers.get(it) }?.isArrow != true -> "Tap the marker's new location on the map. You can move and zoom the map first."
@@ -304,6 +321,10 @@ class Panels(private val a: MainActivity) {
             })
         }
         add(a.body("All coordinates in the app use this format, including the top bar, markers, and shared locations.", muted = true, top = 12))
+
+        add(a.label("Map"))
+        add(a.check("MGRS Grid Lines", "100 km, 10 km, 1 km or 100 m lines by zoom, with their numbers at the top and left edges of the map.",
+            a.prefs.gridLines) { a.prefs.gridLines = it; a.gridChanged(); build() })
 
         // What routes show: each part can be turned off when the map or the panel gets too full.
         add(a.label("Routes"))
@@ -461,24 +482,165 @@ class Panels(private val a: MainActivity) {
 
     private fun markers() {
         val list = a.markers.markers
-        add(a.button("New Route", Kind.PRIMARY) { a.routes.start(null) }.apply { layoutParams = lp(top = a.dp(12)) })
-        if (list.isEmpty()) add(a.body("No markers. To add one, touch and hold the map for 2 seconds, then lift your finger. To draw an arrow, " +
+        val shapes = a.shapes.shapes
+        add(a.buttons(a.button("New Route", Kind.PRIMARY) { a.routes.start(null) }, a.button("New Group") { newGroup(null) }))
+        if (list.isEmpty() && shapes.isEmpty()) add(a.body("No markers. To add one, touch and hold the map for 2 seconds, then lift your finger. To draw an arrow, " +
             "keep holding and drag to where it points. To add a marker at your location, touch and hold the blue dot.", muted = true, top = 12))
-        for (m in list.asReversed()) {
-            val where = when {
-                m.track != null -> TrackStats(m.track.segments).let { "Track · " + a.distanceText(it.meters) + " · " + Routes.timeText((it.seconds / 60).toInt()) }
-                m.route != null -> "Route · " + a.distanceText(a.routeLines.legs(m.route).sumOf { Routes.length(it.line) }) + " · ${m.route.points.size} points"
-                m.isArrow -> "Arrow · " + a.arrowDetail(m)
-                else -> a.coords(m.lat, m.lon, brief = true)
+        // Under their groups, as on the map in the browser: Ungrouped first when it has items, then the groups in the order they were first seen.
+        for (name in listOf("") + a.groups().map { it.name }) {
+            val items = list.filter { it.group == name }
+            val inShapes = shapes.filter { it.group == name }
+            if (name.isEmpty() && items.isEmpty() && inShapes.isEmpty()) continue
+            val g = a.groupState(name)
+            add(groupHeading(g, items.size + inShapes.size))
+            if (g.closed) continue
+            if (items.isEmpty() && inShapes.isEmpty()) add(a.body("Empty. To move an item here, open it and tap Group.", muted = true, top = 4))
+            for (m in items.asReversed()) {
+                val where = when {
+                    m.track != null -> TrackStats(m.track.segments).let { "Track · " + a.distanceText(it.meters) + " · " + Routes.timeText((it.seconds / 60).toInt()) }
+                    m.route != null -> "Route · " + a.distanceText(a.routeLines.legs(m.route).sumOf { Routes.length(it.line) }) + " · ${m.route.points.size} points"
+                    m.isArrow -> "Arrow · " + a.arrowDetail(m)
+                    else -> a.coords(m.lat, m.lon, brief = true)
+                }
+                add(a.row(m.label.ifEmpty { "Unnamed" }, where + if (m.shared) " · Shared" else "", dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
             }
-            add(a.row(m.label.ifEmpty { "Unnamed" }, where + if (m.shared) " · Shared" else "", dot = Color.parseColor(m.color)) { a.openMarker(m.id, fromList = true) })
+            for (s in inShapes) add(a.row(s.label.ifEmpty { "Unnamed" }, Shapes.name(s) + " · " + Shapes.summary(s, a.imperial) + " · Shared",
+                dot = Color.parseColor(s.color)) { a.openShape(s.id, fromList = true) })
         }
         add(a.label("Import / Export"))
-        add(a.body("Export markers to a GeoJSON file for use in other map apps. On the server's map, open the file with Import Drawings.", muted = true))
+        add(a.body("Export markers to a GeoJSON file for use in other map apps. On the server's map, open the file with Import in the Markers tab.", muted = true))
         add(a.buttons(
             a.button("Export") { a.saveMarkersFile() }.apply { enable(list.isNotEmpty()) },
             a.button("Import") { a.loadMarkersFile() },
         ))
+    }
+
+    /* ---------- groups ---------- */
+
+    /**
+     * A group's heading in the Markers list: Show (on the map), its name and how many items (a tap
+     * folds or opens it), and its options: Export Group, and for a named group Rename Group and Delete Group.
+     */
+    private fun groupHeading(g: GroupState, count: Int): View {
+        val title = g.name.ifEmpty { "Ungrouped" }
+        val head = a.row((if (g.closed) "▸ " else "▾ ") + title, "$count item${if (count == 1) "" else "s"}" + if (g.hidden) " · Hidden" else "", icon = null) {
+            a.setGroupState(g.copy(closed = !g.closed)); build()
+        }.apply {
+            layoutParams = lp(top = a.dp(10))
+            contentDescription = "${if (g.closed) "Open" else "Close"} $title"
+        }
+        // Show on the map: a box with a tick, as the other choices of the app.
+        head.addView(FrameLayout(a).apply {
+            setBackgroundResource(if (!g.hidden) R.drawable.bg_primary_normal else R.drawable.bg_field)
+            contentDescription = "Show $title: ${if (g.hidden) "Off" else "On"}"
+            isClickable = true
+            setOnClickListener { a.setGroupState(g.copy(hidden = !g.hidden)); build() }
+            if (!g.hidden) addView(ImageView(a).apply {
+                setImageResource(R.drawable.ic_check)
+                imageTintList = ColorStateList.valueOf(a.color(R.color.on_sig))
+            }, FrameLayout.LayoutParams(a.dp(22), a.dp(22), Gravity.CENTER))
+        }, 0, LinearLayout.LayoutParams(a.dp(32), a.dp(32)).apply { marginEnd = a.dp(14) })
+        head.addView(TextView(a).apply {
+            text = "⋮"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+            setTextColor(a.color(R.color.ink))
+            gravity = Gravity.CENTER
+            contentDescription = "$title Options"
+            isClickable = true
+            setBackgroundResource(R.drawable.bg_row)
+            setOnClickListener { groupOptions(g.name) }
+        }, LinearLayout.LayoutParams(a.dp(48), a.dp(48)))
+        return head
+    }
+
+    private fun groupOptions(name: String) {
+        val title = name.ifEmpty { "Ungrouped" }
+        val choices = listOf("Export Group") + if (name.isEmpty()) emptyList() else listOf("Rename Group", "Delete Group")
+        AlertDialog.Builder(a)
+            .setTitle(title)
+            .setItems(choices.toTypedArray()) { _, i ->
+                when (choices[i]) {
+                    "Export Group" -> if (a.markers.markers.none { it.group == name } && a.shapes.shapes.none { it.group == name }) a.toast("Nothing to export: $title is empty.")
+                        else a.saveGroupFile(name)
+                    "Rename Group" -> askName("Rename Group", name, "Rename") { to ->
+                        if (to.isEmpty() || to == name) return@askName
+                        if (a.groups().any { it.name == to }) { a.toast("There is already a group named $to."); return@askName }
+                        a.renameGroup(name, to)
+                        build()
+                    }
+                    "Delete Group" -> confirmDeleteGroup(name)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Delete Group asks first when it has items; shared ones go from all devices. */
+    private fun confirmDeleteGroup(name: String) {
+        val items = a.markers.markers.count { it.group == name } + a.shapes.shapes.count { it.group == name }
+        val shared = a.markers.markers.count { it.group == name && it.shared } + a.shapes.shapes.count { it.group == name }
+        if (items == 0) { a.deleteGroup(name); build(); return }
+        AlertDialog.Builder(a)
+            .setTitle("Delete Group?")
+            .setMessage("Delete $name and the $items item${if (items == 1) "" else "s"} in it?" +
+                if (shared > 0) "\n\n$shared of them ${if (shared == 1) "is" else "are"} shared: removed from all devices." else "")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Delete") { _, _ -> a.deleteGroup(name); build() }
+            .show()
+    }
+
+    /** A name typed in a small window (a group's), cleaned as the map in the browser cleans it. */
+    private fun askName(title: String, value: String, ok: String, done: (String) -> Unit) {
+        val field = a.field("Group Name", value, max = Drawings.MAX_GROUP)
+        val box = FrameLayout(a).apply { setPadding(a.dp(20), a.dp(8), a.dp(20), 0); addView(field) }
+        AlertDialog.Builder(a)
+            .setTitle(title)
+            .setView(box)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton(ok) { _, _ -> done(Drawings.groupName(field.text.toString())) }
+            .show()
+        field.requestFocus()
+    }
+
+    /** New Group: an empty group in the list, shown and open; `move`: an item that goes into it. */
+    private fun newGroup(move: String?) = askName("New Group", "", "Create") { name ->
+        if (name.isEmpty()) return@askName
+        a.setGroupState(a.groupState(name).copy(hidden = false, closed = false))
+        move?.let { id -> a.markers.get(id)?.let { a.updateMarker(it.copy(group = name)) } }
+        build()
+    }
+
+    /** Group in an item's panel: Ungrouped, a group of the list, or a new one. */
+    private fun chooseGroup(id: String) {
+        val m = a.markers.get(id) ?: return
+        val names = listOf("") + a.groups().map { it.name }
+        val texts = names.map { it.ifEmpty { "Ungrouped" } } + "New Group…"
+        AlertDialog.Builder(a)
+            .setTitle("Group")
+            .setSingleChoiceItems(texts.toTypedArray(), names.indexOf(m.group)) { dialog, i ->
+                dialog.dismiss()
+                if (i == names.size) newGroup(id) else { a.markers.get(id)?.let { a.updateMarker(it.copy(group = names[i])) }; build() }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /* ---------- a shared shape ---------- */
+
+    /** A shape of the map in the browser: what it is and measures, read only; Show on Map. */
+    private fun shape() {
+        val s = a.selectedShape?.let { a.shapes.get(it) } ?: return
+        add(a.label("Name", top = 10))
+        add(a.mono(s.label.ifEmpty { "Unnamed" }, 18f, muted = false))
+        add(a.label("Group"))
+        add(a.mono(s.group.ifEmpty { "Ungrouped" }, 16f, muted = false))
+        add(a.label("Size"))
+        add(a.mono(Shapes.summary(s, a.imperial), 16f, muted = false))
+        add(a.label("Center"))
+        val (lat, lon) = Shapes.center(s)
+        add(a.mono(a.coords(lat, lon), 16f, muted = false))
+        add(a.body("Shared from the server's map. To change or delete it, use the map in the browser.", muted = true, top = 12))
+        add(a.button("Show on Map", Kind.PRIMARY) { a.showShapeOnMap(s.id) }.apply { layoutParams = lp(top = a.dp(14)) })
     }
 
     private fun marker() {
@@ -505,6 +667,8 @@ class Panels(private val a: MainActivity) {
         })
         mark(m.color)
 
+        add(a.row("Group", m.group.ifEmpty { "Ungrouped" }) { chooseGroup(m.id) }.apply { layoutParams = lp(top = a.dp(10)) })
+
         if (m.track != null) {
             // A recorded track: how far and how long, moving and stopped, up and down, when.
             val t = TrackStats(m.track.segments)
@@ -528,6 +692,7 @@ class Panels(private val a: MainActivity) {
             routeShown = routeLook(m.route)
             add(a.label("Route Type"))
             add(a.mono(m.route.type.title, 16f, muted = false))
+            optionsText(m.route)?.let { add(a.mono(it, 14f)) }
             routeNote(m.route)?.let { add(a.body(it, muted = true, top = 6)) }
             if (a.prefs.routeTotals) {
                 add(a.label("Distance and Time"))
@@ -611,6 +776,7 @@ class Panels(private val a: MainActivity) {
         add(a.body("Tap the map to add a point. Drag a point to move it. Drag the dot between two points to add a point there. " +
             "Tap a point to select it.", muted = true, top = 12))
         add(a.row("Route Type", route.type.title) { chooseType() }.apply { layoutParams = lp(top = a.dp(6)) })
+        if (route.type.profile != null) routeOptions(route)
         val mph = a.routes.editing?.let { a.markers.get(it) }?.route?.mph ?: route.type.mph
         val summary = when (points.size) {
             0 -> "No points"
@@ -625,6 +791,67 @@ class Panels(private val a: MainActivity) {
             top = 14,
         ))
         add(a.button("Done", Kind.PRIMARY) { a.routes.finish() }.apply { layoutParams = lp(top = a.dp(10)); enable(points.size >= 2) })
+    }
+
+    /**
+     * Route Options of a route along roads or trails, as on the map in the browser: its Route
+     * Type's switches, Trail Difficulty (Walking), the group whose items it avoids, and which Way.
+     */
+    private fun routeOptions(r: PlannedRoute) {
+        add(a.label("Route Options"))
+        for (o in Routes.OPTIONS[r.type].orEmpty()) add(a.check(o.title, null, o.key in r.options) { on -> a.routes.setOption(o.key, on) })
+        if (r.type == RouteType.WALKING) add(a.row("Trail Difficulty", difficulty(r).title) { chooseDifficulty(r) })
+        add(a.row("Avoid Areas In", r.avoid.ifEmpty { "No Group" }) { chooseAvoid(r) })
+        add(a.row("Way", Routes.WAYS[r.alternative.coerceIn(Routes.WAYS.indices)]) { chooseWay(r) })
+    }
+
+    private fun difficulty(r: PlannedRoute) = Routes.DIFFICULTY.firstOrNull { it.key.isNotEmpty() && it.key in r.options } ?: Routes.DIFFICULTY[1]
+
+    /** What is set of a route's Route Options, as the map in the browser sums them up; null when nothing is. */
+    private fun optionsText(r: PlannedRoute): String? {
+        if (r.type.profile == null) return null
+        return (Routes.OPTIONS[r.type].orEmpty().filter { it.key in r.options }.map { it.title } +
+            Routes.DIFFICULTY.filter { it.key.isNotEmpty() && it.key in r.options }.map { "${it.title} Trails" } +
+            listOfNotNull(r.avoid.ifEmpty { null }?.let { "Avoids $it" }, Routes.WAYS.getOrNull(r.alternative)?.takeIf { r.alternative > 0 }))
+            .joinToString(", ").ifEmpty { null }
+    }
+
+    private fun chooseDifficulty(r: PlannedRoute) {
+        val list = Routes.DIFFICULTY
+        AlertDialog.Builder(a)
+            .setTitle("Trail Difficulty")
+            .setSingleChoiceItems(list.map { it.title }.toTypedArray(), list.indexOf(difficulty(r))) { dialog, i ->
+                dialog.dismiss()
+                a.routes.setDifficulty(list[i].key)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** No Group, or any group an item here is in (the map in the browser names them). */
+    private fun chooseAvoid(r: PlannedRoute) {
+        val names = (a.markers.markers.map { it.group } + a.shapes.shapes.map { it.group } + r.avoid)
+            .filter { it.isNotEmpty() }.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+        val list = listOf("") + names
+        AlertDialog.Builder(a)
+            .setTitle("Avoid Areas In")
+            .setSingleChoiceItems(list.map { it.ifEmpty { "No Group" } }.toTypedArray(), list.indexOf(r.avoid)) { dialog, i ->
+                dialog.dismiss()
+                a.routes.setAvoid(list[i])
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun chooseWay(r: PlannedRoute) {
+        AlertDialog.Builder(a)
+            .setTitle("Way")
+            .setSingleChoiceItems(Routes.WAYS.toTypedArray(), r.alternative) { dialog, i ->
+                dialog.dismiss()
+                a.routes.setWay(i)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /** How a route stands, to draw its panel again when that changes (a leg was worked out). */
@@ -642,11 +869,13 @@ class Panels(private val a: MainActivity) {
             if (noWay > 0) count(noWay, "straight leg", "straight legs") + ": no route found. Without routing data on this device for the area, " +
                 "download an offline area there while connected to the server." else null,
             if (offRoad > 0) count(offRoad, "leg ends", "legs end") + " off road (dashed)." else null,
-            if (legs.any { it.state == LegState.WAITING }) "Finding the way…" else null,
+            if (a.routeLines.request(r)?.tooMuch == true) "${r.avoid} has too many points to avoid all of them." else null,
+            // Legs still being worked out are neither found nor "no route found" yet.
+            a.routeLines.working(r).takeIf { it > 0 }?.let { "Working out " + count(it, "leg", "legs") + "…" },
         ).joinToString("\n").ifEmpty { null }
     }
 
-    /** Driving, Walking or Straight Line, for the route being drawn. */
+    /** Driving, Walking, Bicycle or Straight Line, for the route being drawn. */
     private fun chooseType() {
         val types = RouteType.entries
         AlertDialog.Builder(a)

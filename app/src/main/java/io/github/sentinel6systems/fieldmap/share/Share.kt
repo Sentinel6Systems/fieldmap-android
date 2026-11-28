@@ -3,6 +3,7 @@ package io.github.sentinel6systems.fieldmap.share
 import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.Palette
+import io.github.sentinel6systems.fieldmap.data.Shape
 import org.json.JSONException
 import org.json.JSONObject
 import java.time.Instant
@@ -48,8 +49,12 @@ data class Peer(
 /** This phone's position as it is sent. `time`: when the fix was taken, ms since 1970. */
 data class Fix(val lat: Double, val lon: Double, val alt: Double?, val acc: Double?, val course: Double?, val speed: Double?, val time: Long)
 
-/** One answer to "what is there": everyone's position, and the shared markers that changed since `since`. */
-class ShareState(val rev: Long, val full: Boolean, val positions: List<Peer>, val markers: List<Marker>, val removed: List<String>)
+/**
+ * One answer to "what is there": everyone's position, and the shared markers that changed since
+ * `since`; `shapes`: the shapes of the map in the browser that changed (Drawings.shape).
+ */
+class ShareState(val rev: Long, val full: Boolean, val positions: List<Peer>, val markers: List<Marker>, val removed: List<String>,
+                 val shapes: List<Shape> = emptyList())
 
 /**
  * What the box has not heard yet: shared markers changed on this phone (`put`), and shared
@@ -139,18 +144,22 @@ object ShareJson {
             )
         }
         val markers = ArrayList<Marker>()
+        val shapes = ArrayList<Shape>()
         val features = o.optJSONArray("markers")
         for (i in 0 until (features?.length() ?: 0)) {
             val f = features?.optJSONObject(i) ?: continue
             val properties = f.optJSONObject("properties")
             val id = (f.opt("id") as? String) ?: (properties?.optJSONObject("fieldmap")?.opt("id") as? String) ?: continue
             if (!ID.matches(id)) continue
+            // A shape of the map in the browser: kept apart, for the routes that avoid its group.
+            val shape = Drawings.shape(f, id)
+            if (shape != null) { shapes += shape; continue }
             // Read as any marker file is: a point, its name cut to length, its colour checked.
             val read = try { Drawings.fromGeoJson(f.toString(), Palette.DEFAULT) { id }.markers.singleOrNull() } catch (e: IllegalArgumentException) { null } ?: continue
             markers += read.copy(id = id, shared = true, updated = properties?.optString("updated").orEmpty(), by = properties?.optString("by").orEmpty())
         }
         val removed = o.optJSONArray("removed").let { a -> (0 until (a?.length() ?: 0)).mapNotNull { a?.opt(it) as? String } }
-        return ShareState(o.optLong("rev"), o.optBoolean("full"), positions, markers, removed)
+        return ShareState(o.optLong("rev"), o.optBoolean("full"), positions, markers, removed, shapes)
     }
 
     private fun number(o: JSONObject, key: String): Double? = o.optDouble(key).takeIf { !it.isNaN() && !it.isInfinite() }
@@ -202,6 +211,24 @@ object ShareMerge {
         for (m in remote.values) if (m.id !in here && m.id !in deleted) out += m
         put.retainAll(out.filter { it.shared }.map { it.id }.toSet())
         return Result(out, Pending(put, deleted))
+    }
+
+    /**
+     * The shapes kept after an answer of the box: all of them anew (full), or those here with the
+     * changes (an id removed and put again is there; one become a marker goes). What this phone
+     * has not sent yet stands: a shape it deleted stays gone, one it moved to another group (Rename
+     * Group) keeps that group.
+     */
+    fun shapes(local: List<Shape>, state: ShareState, pending: Pending = Pending()): List<Shape> {
+        val out = LinkedHashMap<String, Shape>()
+        val mine = local.filter { it.id in pending.put }.associateBy { it.id }
+        if (!state.full) for (s in local) out[s.id] = s
+        for (id in state.removed) out.remove(id)
+        for (m in state.markers) out.remove(m.id)
+        for (s in state.shapes) out[s.id] = s
+        for ((id, s) in mine) out[id] = s
+        for (id in pending.deleted.keys) out.remove(id)
+        return out.values.toList()
     }
 }
 

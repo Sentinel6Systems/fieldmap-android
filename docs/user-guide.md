@@ -10,16 +10,18 @@ the fieldmap-server machine, and the **local network** is the Wi-Fi or home netw
 2. [Connect to the server](#connect-to-the-server)
 3. [Download offline areas](#download-offline-areas)
 4. [Use the map offline](#use-the-map-offline)
-5. [Markers and arrows](#markers-and-arrows)
-6. [Routes](#routes)
-7. [Track recording](#track-recording)
-8. [Remote access: pair the device](#remote-access-pair-the-device)
-9. [Location sharing](#location-sharing)
-10. [Messages](#messages)
-11. [Mesh radio](#mesh-radio)
-12. [NetBird VPN](#netbird-vpn)
-13. [Permissions and privacy](#permissions-and-privacy)
-14. [Troubleshooting](#troubleshooting)
+5. [Read and write MGRS coordinates](#read-and-write-mgrs-coordinates)
+6. [Markers and arrows](#markers-and-arrows)
+7. [Groups](#groups)
+8. [Routes](#routes)
+9. [Track recording](#track-recording)
+10. [Remote access: pair the device](#remote-access-pair-the-device)
+11. [Location sharing](#location-sharing)
+12. [Messages](#messages)
+13. [Mesh radio](#mesh-radio)
+14. [NetBird VPN](#netbird-vpn)
+15. [Permissions and privacy](#permissions-and-privacy)
+16. [Troubleshooting](#troubleshooting)
 
 ## Install the app
 
@@ -83,6 +85,59 @@ always shows your GPS position and accuracy (for example **GPS ±5 m**), or **Ac
 **Menu** › **Settings** › **Coordinate Format** sets how positions are shown: **MGRS**, **UTM**, **Decimal Degrees
 (DD)** or **Degrees Minutes Seconds (DMS)**.
 
+**Menu** › **Settings** › **MGRS Grid Lines** draws the MGRS grid on the map. The spacing follows the zoom: 100 km,
+10 km, 1 km or 100 m. Zoomed far out, the map shows the grid zones (for example **13S**). Each line has its number
+at the top or left edge of the map, and each 100 km square shows its name (for example **13S DC**). The grid is
+drawn again each time the map stops moving.
+
+## Read and write MGRS coordinates
+
+MGRS is a way to give a location with letters and numbers. Many field maps, radios and TAK apps use it. An MGRS
+reference names a square on the map. More digits give a smaller square, and so a more exact location.
+
+**The parts of a reference.** Example: the summit of Pikes Peak, Colorado, is **13S DC 9616 9908**.
+
+| Part | Example | What it is |
+|---|---|---|
+| Grid zone | 13S | A large area, about 6° wide and 8° high. |
+| 100 km square | DC | A square of 100 × 100 km in that zone. |
+| Easting | 9616 | How far right (east) in the 100 km square. |
+| Northing | 9908 | How far up (north) in the 100 km square. |
+
+The easting always comes first. The easting and the northing always have the same number of digits.
+
+**How exact is it?** Each pair of digits makes the square 10 times smaller:
+
+| Digits | Example | Size of the square |
+|---|---|---|
+| 2 | 13S DC 9 9 | 10 km |
+| 4 | 13S DC 96 99 | 1 km |
+| 6 | 13S DC 961 990 | 100 m |
+| 8 | 13S DC 9616 9908 | 10 m |
+| 10 | 13S DC 96162 99082 | 1 m |
+
+For most uses, 6 digits (100 m) or 8 digits (10 m) are enough.
+
+**Read a location from the map.** Remember the rule: **read right, then up.**
+
+1. In **Menu** › **Settings**, set **MGRS Grid Lines** on.
+2. Zoom in until you see the 1 km lines. Each line has a two-digit number at the edge of the map.
+3. Find the name of the 100 km square near the location, for example **13S DC**.
+4. Find the vertical line to the left of the location. Read its number at the top edge. Example: **96**.
+5. Estimate how far the location is to the right of that line, in tenths of a square. Example: **1**.
+6. Find the horizontal line below the location. Read its number at the left edge. Example: **99**.
+7. Estimate how far the location is above that line, in tenths. Example: **0**.
+8. Write the parts in this order: zone and square, then right, then up. Example: **13S DC 961 990**.
+
+**Get the reference without reading it.** The top strip shows your own position. For another place, put a marker
+on it (touch and hold the map): its panel shows the reference to 1 m.
+
+**Write and say a reference correctly:**
+
+- Write the zone, the square, the easting and the northing, with a space between each.
+- Keep the zeros at the start. Write **0412**, not **412**. A missing zero moves the location.
+- Do not change the order. The easting (right) is always first, and the northing (up) is always second.
+
 ## Markers and arrows
 
 - **Add a marker:** touch and hold the map for 2 seconds, until the ring around your finger fills. To mark your own
@@ -90,26 +145,69 @@ always shows your GPS position and accuracy (for example **GPS ±5 m**), or **Ac
 - **Draw an arrow:** touch and hold for 2 seconds, keep holding and drag, then lift your finger where the arrow
   should point. Its panel shows **Length and Bearing**, **Start** and **Head**; **Move Start** and **Move End**
   move its ends.
-- **Edit an item:** tap it. The panel lets you change the **Name** and **Color** (12 colors) and shows its
-  **Location**, distance and bearing. **Delete** removes it.
+- **Edit an item:** tap it. The panel lets you change the **Name**, **Color** (12 colors) and **Group** and shows
+  its **Location**, distance and bearing. **Delete** removes it.
+- **Items on top of each other:** when you tap where more than one item is (a marker on an arrow, a route through a
+  shape), **Which One?** lists them with their name, kind and group. Tap the one you want.
 - **Move a marker:** press **Move** in its panel, then tap the new place (or tap the blue dot for your location).
   Back keeps it where it was.
 - **Import / Export:** **Menu** › **Markers** › **Export** writes a GeoJSON file. The server's map can import it
-  with **Import Drawings**, and so can QGIS and other map software. **Import** reads markers, arrows and routes
-  from a file (shapes are skipped).
+  with **Import** in its Markers tab, and so can QGIS and other map software. **Import** reads markers, arrows and routes
+  from a file (shapes are skipped). Items keep their groups. A file from other software becomes a group named
+  after the file (without the date at the end): **Trail Heads-2026-11-20.geojson** becomes **Trail Heads**.
+
+## Groups
+
+Groups keep items together for a task, for example **Water Points** or **Danger Areas**. They are the same groups
+as on the server's map. **Menu** › **Markers** lists the items under their groups: **Ungrouped** first (when it
+has items), then each group.
+
+- **New Group** adds an empty group. New items go to **Ungrouped**. To move an item, open it and tap **Group**
+  (choose **New Group…** to make one and move the item into it).
+- Tap a group's name to fold or open it. The box in front of it shows or hides the group's items on the map. The
+  device remembers both.
+- **⋮** beside a group: **Export Group** writes a GeoJSON file of that group only. **Rename Group** renames it,
+  and its items move with it. **Delete Group** asks first, then deletes the group and its items. Shared items are
+  deleted on all devices.
+- A shared item that you move to another group moves on all devices.
+
+**Shapes from the server's map.** Circles, rectangles and polygons drawn on the server's map and shared show in
+the app too, filled lightly in their color, and in the list under their group. Tap one to see its **Name**,
+**Group**, **Size** (radius or sides, and area) and **Center**; **Show on Map** brings it into view. The app shows
+shapes but does not draw them: change or delete them on the server's map.
 
 ## Routes
 
 A route is a line through up to 30 points, along roads and trails or straight between the points. The app works
 it out on the device, so it also works offline.
 
+> **Why 30 points?** A shared route must fit in one Meshtastic radio packet, so that devices off the network can
+> still receive it over the mesh; 30 points is about what one packet holds. The app, the server and the server's
+> map all keep to it, so a route looks the same everywhere. **For a longer route, make it as two or more routes
+> that follow on from each other:** end the first where the next one starts (for example "Egress 1" and "Egress
+> 2"), and keep them in the same group.
+
 1. Go to **Menu** › **Markers** › **New Route**.
 2. Tap the map to add each point, in order. Drag a point to move it. Drag the dot between two points to add a point
    there. Tap a point to select it, then **Remove Point** to take it out. **Undo** reverses the last change.
-3. Tap **Route Type** to choose **Driving**, **Walking** or **Straight Line**.
-4. Press **Done**.
+3. Tap **Route Type** to choose **Driving**, **Walking**, **Bicycle** or **Straight Line**.
+4. Optional: set the **Route Options** (see below).
+5. Press **Done**.
 
-Tap the route to see its panel: **Route Type**, **Distance and Time** (set the **Speed** for the time estimate),
+**Route Options** (all types except Straight Line) are the same as on the server's map, so a shared route takes
+the same roads on every device:
+
+- **Driving:** **Avoid Highways**, **Allow Dirt Tracks**, **Avoid Big Towns** and **Fuel Saver** (a lower target
+  speed).
+- **Walking:** **Avoid Steps**, **Avoid Wet Ground**, and **Trail Difficulty**: **Easy**, **Moderate** (the default)
+  or **Hard**.
+- **Avoid Areas In:** a group from the server's map. The route keeps away from that group's markers (100 m around
+  each), circles, rectangles and polygons, and does not cross its arrows. The app has no groups of its own: it
+  lists the groups of the items it got from the server or a file. A group with more than 400 points in all is
+  avoided only in part, and the route's panel says so.
+- **Way:** **Best Way**, or the router's **Second Way**, **Third Way** or **Fourth Way**.
+
+Tap the route to see its panel: **Route Type** with the options that are set, **Distance and Time** (set the **Speed** for the time estimate),
 **Legs** with each leg's distance and bearing, **Start** and **End**. **Edit Route** changes it again; **Delete**
 removes it. Leaving the editor without **Done** asks **Discard Changes?**.
 
@@ -118,6 +216,10 @@ along the road to the nearest place the route can reach, then a dashed straight 
 the legs that end more than about 100 m off the road. A leg the app can't work out is straight and dashed, and the
 panel says why: no route was found there, or the device has no routing data for the area. Routes look the same on
 the server's map in the browser.
+
+While the app works out legs, a note at the bottom of the map says **Working out routes: N legs to go**, and the
+route's panel says **Working out N legs…**. A leg still being worked out is not counted as "no route found". A long
+leg can take up to 30 seconds.
 
 **Routing data** comes with your offline areas: when you download an area, the app also downloads the server's
 routing data for it. **Menu** › **Offline Areas** shows its state under **Routing Data**. The server owner has to

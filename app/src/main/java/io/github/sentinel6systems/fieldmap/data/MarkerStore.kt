@@ -37,9 +37,11 @@ class MarkerStore(private val file: File) {
         return m
     }
 
-    /** A new route through these points (lat to lon, at least two). */
-    fun addRoute(points: List<Pair<Double, Double>>, color: String, type: RouteType = RouteType.STRAIGHT): Marker {
-        val m = Marker(newId(), 0.0, 0.0, Drawings.nextName(markers, route = true), color, route = PlannedRoute(points, type.mph, type)).withPoints(points)
+    /** A new route through these points (lat to lon, at least two), with its Route Options, Avoid Areas group and Way. */
+    fun addRoute(points: List<Pair<Double, Double>>, color: String, type: RouteType = RouteType.STRAIGHT,
+                 options: List<String> = emptyList(), avoid: String = "", alternative: Int = 0): Marker {
+        val route = PlannedRoute(points, type.mph, type, options, avoid, alternative)
+        val m = Marker(newId(), 0.0, 0.0, Drawings.nextName(markers, route = true), color, route = route).withPoints(points)
         markers = markers + m
         save()
         return m

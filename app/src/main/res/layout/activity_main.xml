@@ -198,6 +198,21 @@
             android:text="@string/follow" />
     </LinearLayout>
 
+    <!-- While legs of routes are being worked out on the device: how many are left. -->
+    <TextView
+        android:id="@+id/routeStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginHorizontal="16dp"
+        android:background="@drawable/bg_card"
+        android:elevation="4dp"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="6dp"
+        android:textColor="@color/ink"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/toast"
         android:layout_width="wrap_content"

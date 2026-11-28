@@ -3,6 +3,7 @@ package io.github.sentinel6systems.fieldmap
 import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.geo.Arrows
+import io.github.sentinel6systems.fieldmap.geo.Grid
 import io.github.sentinel6systems.fieldmap.mesh.MeshCodec
 import io.github.sentinel6systems.fieldmap.share.ShareJson
 import org.json.JSONObject
@@ -22,13 +23,21 @@ class ArrowsTest {
         val (lat, lon) = Arrows.destination(48.0, -122.0, 0.0, 1111.95)
         assertEquals(48.01, lat, 1e-6)
         assertEquals(-122.0, lon, 1e-9)
-        // Head strokes: 8 % of the length (89 m here), 25° either side of the way back.
-        val (h1, h2) = Arrows.head(48.0, -122.0, 48.01, -122.0)
-        for (h in listOf(h1, h2)) assertEquals(88.96, Arrows.inverse(48.01, -122.0, h.first, h.second).first, 0.1)
-        assertEquals(155.0, Arrows.inverse(48.01, -122.0, h1.first, h1.second).second, 0.01)
-        assertEquals(205.0, Arrows.inverse(48.01, -122.0, h2.first, h2.second).second, 0.01)
-        // At least 15 m, at most 400 m.
-        assertEquals(15.0, Arrows.inverse(48.0, -122.0, Arrows.head(48.0, -122.0, 48.0001, -122.0).first.first, -122.0).first, 15.0)
+        // Head strokes: as long as asked, 28° either side of the way back, as on the map in the browser.
+        val (h1, h2) = Arrows.head(39.8, -105.2, 39.81, -105.2, 100.0)
+        for (h in listOf(h1, h2)) assertEquals(100.0, Arrows.inverse(39.81, -105.2, h.first, h.second).first, 0.01)
+        assertEquals(152.0, Arrows.inverse(39.81, -105.2, h1.first, h1.second).second, 0.01)
+        assertEquals(208.0, Arrows.inverse(39.81, -105.2, h2.first, h2.second).second, 0.01)
+        // At most 40 % of a short arrow (11.1 m here).
+        val short = Arrows.head(39.8, -105.2, 39.8001, -105.2, 100.0).first
+        assertEquals(4.45, Arrows.inverse(39.8001, -105.2, short.first, short.second).first, 0.01)
+    }
+
+    @Test fun theHeadIsTheSameSizeOnTheScreenAtEveryZoom() {
+        // 18 px: about 33 m at zoom 15 here, half that one zoom in.
+        assertEquals(33.03, Arrows.headLength(39.8, 15.0), 0.01)
+        assertEquals(Arrows.headLength(39.8, 15.0) / 2, Arrows.headLength(39.8, 16.0), 1e-9)
+        assertEquals(18.0 * Grid.metersPerPixel(39.8, 12.5), Arrows.headLength(39.8, 12.5), 1e-9)
     }
 
     @Test fun theLabelAlongTheShaftStaysUpright() {

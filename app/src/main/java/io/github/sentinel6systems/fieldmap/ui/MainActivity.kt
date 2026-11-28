@@ -56,6 +56,12 @@ import io.github.sentinel6systems.fieldmap.R
 import io.github.sentinel6systems.fieldmap.data.Drawings
 import io.github.sentinel6systems.fieldmap.data.Marker
 import io.github.sentinel6systems.fieldmap.data.MarkerStore
+import io.github.sentinel6systems.fieldmap.data.GroupState
+import io.github.sentinel6systems.fieldmap.data.Groups
+import io.github.sentinel6systems.fieldmap.data.Shape
+import io.github.sentinel6systems.fieldmap.data.ShapeStore
+import io.github.sentinel6systems.fieldmap.geo.Grid
+import io.github.sentinel6systems.fieldmap.geo.Shapes
 import io.github.sentinel6systems.fieldmap.databinding.ActivityMainBinding
 import io.github.sentinel6systems.fieldmap.geo.GpsEngine
 import io.github.sentinel6systems.fieldmap.geo.Coords
@@ -150,6 +156,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.hypot
 
 /** How the map follows the phone's position. */
@@ -164,6 +171,8 @@ class MainActivity : AppCompatActivity() {
     internal lateinit var b: ActivityMainBinding
     internal lateinit var prefs: Prefs
     internal lateinit var markers: MarkerStore
+    /** The shared shapes in a group, for the routes that avoid them. */
+    internal lateinit var shapes: ShapeStore
     internal lateinit var areas: Areas
     internal lateinit var sharing: Sharing
         private set
@@ -233,6 +242,7 @@ class MainActivity : AppCompatActivity() {
         prefs = Prefs(this)
         applyRemote()
         markers = MarkerStore(File(filesDir, "markers.geojson"))
+        shapes = ShapeStore(File(filesDir, "shapes.json"))
         areas = Areas(this)
         sharing = Sharing(this)
         panels = Panels(this)
@@ -307,8 +317,13 @@ class MainActivity : AppCompatActivity() {
         }
         m.setMaxZoomPreference(20.0)
         prefs.camera?.let { (lat, lon, zoom) -> m.cameraPosition = CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).build() }
-        m.addOnCameraMoveListener { updateReadout() }
+        m.addOnCameraMoveListener {
+            updateReadout()
+            // An arrow's head keeps its size on the screen as the zoom changes.
+            if (abs(m.cameraPosition.zoom - arrowsZoom) > 0.05) style?.getSourceAs<GeoJsonSource>(ARROWS)?.setGeoJson(arrowsOnMap())
+        }
         m.addOnCameraIdleListener {
+            gridChanged()
             // After leaving heading-up by dragging, the map turns back to north.
             if (follow == Follow.FREE && m.cameraPosition.bearing != 0.0) m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 300)
             saveCamera()
@@ -377,21 +392,57 @@ class MainActivity : AppCompatActivity() {
         val below = st.layers.firstOrNull { it.id.contains("location") }?.id
         fun add(layer: Layer) = if (below != null) st.addLayerBelow(layer, below) else st.addLayer(layer)
 
+        // Names need a font the style has (and so one that is saved with an area).
+        val fonts = st.layers.mapNotNull { (it as? SymbolLayer)?.textFont?.value }.filter { it.isNotEmpty() }
+        val font = fonts.firstOrNull { f -> f[0].contains("bold", true) && !f[0].contains("italic", true) } ?: fonts.firstOrNull()
+        // The MGRS grid (Menu > Settings > MGRS Grid Lines), under everything of ours, as on the map in the browser.
+        st.addSource(GeoJsonSource(GRID, FeatureCollection.fromFeatures(emptyList())))
+        val gridBlue = "#1f5fbf"
+        add(LineLayer(GRID_LINES, GRID).withProperties(lineColor(gridBlue), lineOpacity(0.7f),
+            lineWidth(Expression.match(Expression.get("kind"), Expression.literal(1.6f), Expression.stop("minor", 0.8f))))
+            .withFilter(Expression.eq(Expression.geometryType(), Expression.literal("LineString"))))
+        if (font != null) {
+            // Each line's digits at the top and left edges of the view, upright; the 100 km square's name.
+            add(SymbolLayer("fm-grid-label", GRID).withProperties(
+                textField(Expression.get("label")), textFont(font), textSize(12f), textAnchor(Expression.get("anchor")),
+                textOffset(Expression.match(Expression.get("anchor"), Expression.literal(arrayOf(0.3f, 0f)), Expression.stop("top", Expression.literal(arrayOf(0f, 0.3f))))),
+                textAllowOverlap(true), textIgnorePlacement(true), textColor(gridBlue), textHaloColor(Color.WHITE), textHaloWidth(2f),
+            ).withFilter(Expression.eq(Expression.get("kind"), Expression.literal("edge"))))
+            add(SymbolLayer("fm-grid-name", GRID).withProperties(
+                textField(Expression.get("label")), textFont(font), textSize(15f), textAllowOverlap(false),   // two squares' names where zones meet: one shows
+                textColor(gridBlue), textHaloColor(Color.WHITE), textHaloWidth(2.5f),
+            ).withFilter(Expression.eq(Expression.get("kind"), Expression.literal("name"))))
+        }
         st.addSource(GeoJsonSource(AREAS, areasOnMap()))
         st.addSource(GeoJsonSource(MARKERS, markersOnMap()))
         add(LineLayer("fm-areas-case", AREAS).withProperties(lineColor(Color.WHITE), lineWidth(4.5f), lineOpacity(0.7f)))
         add(LineLayer("fm-areas", AREAS).withProperties(lineColor("#3f7d1c"), lineWidth(2f), lineDasharray(arrayOf(3f, 2f))))
+        // The shared shapes of the map in the browser: filled faintly in their color, outlined, named. Under the rest.
+        st.addSource(GeoJsonSource(SHAPES, shapesOnMap()))
+        val outline = Expression.eq(Expression.geometryType(), Expression.literal("Polygon"))
+        add(FillLayer("fm-shapes-fill", SHAPES).withProperties(fillColor(Expression.get("color")), fillOpacity(0.12f)).withFilter(outline))
+        add(LineLayer(SHAPE_LINES, SHAPES).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineJoin(Property.LINE_JOIN_ROUND)).withFilter(outline))
+        if (font != null) add(SymbolLayer(SHAPE_NAMES, SHAPES).withProperties(
+            textField(Expression.get("label")), textFont(font), textSize(13f), textAllowOverlap(true),
+            textColor("#111111"), textHaloColor(Color.WHITE), textHaloWidth(1.6f),
+        ).withFilter(Expression.eq(Expression.geometryType(), Expression.literal("Point"))))
         // The print tool's arrows: a line in the colour with a white halo, a head of two strokes,
         // the name, length and bearing along it; the ends show while one is chosen. Under the dots.
         st.addSource(GeoJsonSource(ARROWS, arrowsOnMap()))
         st.addSource(GeoJsonSource(DRAG, FeatureCollection.fromFeatures(emptyList())))
-        val shaft = Expression.match(Expression.get("part"), Expression.literal(false), Expression.stop("line", true), Expression.stop("head", true))
+        val shaft = Expression.eq(Expression.get("part"), Expression.literal("line"))
+        val headPart = Expression.eq(Expression.get("part"), Expression.literal("head"))
         add(LineLayer("fm-arrows-halo", ARROWS).withProperties(lineColor(Color.WHITE), lineWidth(6f), lineOpacity(0.6f), lineCap(Property.LINE_CAP_ROUND),
             lineJoin(Property.LINE_JOIN_ROUND)).withFilter(shaft))
         add(LineLayer(ARROW_LINES, ARROWS).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineCap(Property.LINE_CAP_ROUND),
             lineJoin(Property.LINE_JOIN_ROUND)).withFilter(shaft))
         add(CircleLayer(ARROW_ENDS, ARROWS).withProperties(circleRadius(7f), circleColor(Color.WHITE), circleStrokeColor(Expression.get("color")),
             circleStrokeWidth(3f)).withFilter(arrowEndsFilter()))
+        // The head over the handle at the tip, as on the map in the browser.
+        add(LineLayer("fm-arrows-head-halo", ARROWS).withProperties(lineColor(Color.WHITE), lineWidth(6f), lineOpacity(0.6f), lineCap(Property.LINE_CAP_ROUND),
+            lineJoin(Property.LINE_JOIN_ROUND)).withFilter(headPart))
+        add(LineLayer(ARROW_HEADS, ARROWS).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineCap(Property.LINE_CAP_ROUND),
+            lineJoin(Property.LINE_JOIN_ROUND)).withFilter(headPart))
         // While an arrow is being drawn: a dashed line from where the finger held to where it is.
         add(LineLayer("fm-drag", DRAG).withProperties(lineColor(Expression.get("color")), lineWidth(3f), lineDasharray(arrayOf(2f, 1.5f))))
         // Recorded tracks: a line in the colour with a white halo, a dot where it starts; the one
@@ -436,9 +487,6 @@ class MainActivity : AppCompatActivity() {
             CircleLayer(MARKER_SELECTED, MARKERS).withProperties(circleRadius(17f), circleOpacity(0f), circleStrokeColor(color(R.color.sig)), circleStrokeWidth(3f))
                 .withFilter(selectedFilter()),
         )
-        // Names need a font the style has (and so one that is saved with an area).
-        val fonts = st.layers.mapNotNull { (it as? SymbolLayer)?.textFont?.value }.filter { it.isNotEmpty() }
-        val font = fonts.firstOrNull { f -> f[0].contains("bold", true) && !f[0].contains("italic", true) } ?: fonts.firstOrNull()
         if (font != null) st.addLayerBelow(
             SymbolLayer("fm-arrows-label", ARROWS).withProperties(
                 textField(Expression.get("label")), textFont(font), textSize(12f), textOffset(arrayOf(0f, -1f)),
@@ -518,6 +566,7 @@ class MainActivity : AppCompatActivity() {
         )
         startLocation(st)
         updateReadout()
+        gridChanged()
     }
 
     /** The symbol of another phone: a diamond in the given colour, white-edged like the markers. */
@@ -634,12 +683,16 @@ class MainActivity : AppCompatActivity() {
     /** An arrow's length and bearing, for its panel and the Markers list. */
     internal fun arrowDetail(m: Marker): String = arrowText(m)
 
-    /** The arrows: line, head, label at the middle, and the two ends (shown for the chosen one). */
+    /** The zoom the arrows' heads were last drawn for. */
+    private var arrowsZoom = -1.0
+
+    /** The arrows: line, head (Arrows.HEAD_PX on the screen at this zoom), label at the middle, and the two ends (shown for the chosen one). */
     private fun arrowsOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
-        markers.markers.filter { it.isArrow && !it.isRoute }.flatMap { m ->
+        markers.markers.filter { it.isArrow && !it.isRoute && !hidden(it.group) }.flatMap { m ->
             val endLat = m.endLat!!
             val endLon = m.endLon!!
-            val (h1, h2) = Arrows.head(m.lat, m.lon, endLat, endLon)
+            arrowsZoom = map?.cameraPosition?.zoom ?: 14.0
+            val (h1, h2) = Arrows.head(m.lat, m.lon, endLat, endLon, Arrows.headLength(endLat, arrowsZoom))
             val bearing = Arrows.inverse(m.lat, m.lon, endLat, endLon).second
             fun part(f: Feature, name: String) = f.apply {
                 addStringProperty("id", m.id); addStringProperty("color", m.color); addStringProperty("part", name)
@@ -659,7 +712,7 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun markersOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
-        markers.markers.filter { !it.isArrow && !it.isRoute && !it.isTrack }.map { m ->
+        markers.markers.filter { !it.isArrow && !it.isRoute && !it.isTrack && !hidden(it.group) }.map { m ->
             Feature.fromGeometry(Point.fromLngLat(m.lon, m.lat)).apply {
                 addStringProperty("id", m.id)
                 addStringProperty("label", m.label)
@@ -701,7 +754,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun routesOnMap(): FeatureCollection {
         val drawn = routes.route
-        val all = markers.markers.filter { it.isRoute && !(drawn != null && it.id == routes.editing) }
+        val all = markers.markers.filter { it.isRoute && !(drawn != null && it.id == routes.editing) && !hidden(it.group) }
             .map { Triple(it.id, it.color, it.label) to it.route!! }
             .plus(if (drawn != null) listOf(Triple(DRAWN, routes.editing?.let(markers::get)?.color ?: prefs.color, "") to drawn) else emptyList())
         return FeatureCollection.fromFeatures(all.flatMap { (about, route) ->
@@ -737,7 +790,7 @@ class MainActivity : AppCompatActivity() {
 
     /** The recorded tracks, each segment a line, and the track being recorded. */
     private fun tracksOnMap(): FeatureCollection {
-        val all = markers.markers.mapNotNull { m -> m.track?.let { Triple(m.id, m.color, m.label) to it.segments } } +
+        val all = markers.markers.filter { !hidden(it.group) }.mapNotNull { m -> m.track?.let { Triple(m.id, m.color, m.label) to it.segments } } +
             (if (Recording.state != Recording.State.OFF) listOf(Triple(RECORDING, hex(R.color.warn), "") to Recording.segments) else emptyList())
         return FeatureCollection.fromFeatures(all.flatMap { (about, segments) ->
             val (id, color, label) = about
@@ -803,6 +856,95 @@ class MainActivity : AppCompatActivity() {
         if (!::routeLines.isInitialized) return
         style?.getSourceAs<GeoJsonSource>(ROUTES)?.setGeoJson(routesOnMap())
         routeLines.saveSoon()
+        // While legs are worked out (a long one can take a while): how many are left, as on the map in the browser.
+        val n = routeLines.working
+        b.routeStatus.text = "Working out routes: $n leg${if (n == 1) "" else "s"} to go"
+        b.routeStatus.visibility = if (n > 0) View.VISIBLE else View.GONE
+    }
+
+    /* ---------- shared shapes, groups, the grid ---------- */
+
+    /** The shared shapes: each outline (filled and lined in its color) and its name in the middle; not those of a hidden group. */
+    private fun shapesOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
+        shapes.shapes.filter { !hidden(it.group) }.flatMap { s ->
+            val ring = Shapes.ring(s).map { Point.fromLngLat(it.second, it.first) }
+            val c = Shapes.center(s)
+            listOf(
+                Feature.fromGeometry(Polygon.fromLngLats(listOf(ring + ring.take(1)))),
+                Feature.fromGeometry(Point.fromLngLat(c.second, c.first)).apply { addStringProperty("label", s.label) },
+            ).onEach { it.addStringProperty("id", s.id); it.addStringProperty("color", s.color) }
+        },
+    )
+
+    /** The groups of the Markers list in their order (Groups.known); one an item names for the first time is kept from now on. */
+    internal fun groups(): List<GroupState> {
+        val kept = prefs.groups
+        val known = Groups.known(kept, markers.markers.map { it.group } + shapes.shapes.map { it.group })
+        if (known.any { g -> kept.none { it.name == g.name } }) prefs.groups = kept + known.filter { g -> kept.none { it.name == g.name } }
+        return known
+    }
+
+    /** What a group shows ("" is Ungrouped). */
+    internal fun groupState(name: String) = prefs.groups.firstOrNull { it.name == name } ?: GroupState(name)
+
+    internal fun hidden(group: String) = prefs.groups.any { it.name == group && it.hidden }
+
+    /** A group shown or hidden, folded or opened; a new one (New Group) is added at the end. */
+    internal fun setGroupState(g: GroupState) {
+        val kept = prefs.groups
+        prefs.groups = if (kept.any { it.name == g.name }) kept.map { if (it.name == g.name) g else it } else kept + g
+        markersChanged()
+    }
+
+    /** Rename Group: its items go with it; shared ones, shapes too, change on all devices. */
+    internal fun renameGroup(from: String, to: String) {
+        prefs.groups = prefs.groups.map { if (it.name == from) it.copy(name = to) else it }
+        markers.replaceAll(Groups.renamed(markers.markers, from, to).map { m -> if (m.group == to && m.shared && markers.get(m.id)?.group == from) sharing.edited(m) else m })
+        for (s in shapes.shapes.filter { it.group == from }) moveShape(s, to)
+        markersChanged()
+    }
+
+    /** A shared shape in another group, on all devices. */
+    private fun moveShape(s: Shape, to: String) {
+        if (s.feature.isEmpty()) return
+        val feature = Groups.moveShape(s.feature, s.id, to, prefs.uid, ShareJson.time(System.currentTimeMillis()))
+        shapes.update(s.id, s.copy(group = to, feature = feature))
+        sharing.shapeEdited(s.id)
+    }
+
+    /** Delete Group: the group and its items; the shared ones (shapes too) from all devices. */
+    internal fun deleteGroup(name: String) {
+        for (m in markers.markers.filter { it.group == name && it.shared }) sharing.removed(m.id)
+        markers.replaceAll(markers.markers.filter { it.group != name })
+        for (s in shapes.shapes.filter { it.group == name }) { sharing.removed(s.id); shapes.update(s.id, null) }
+        prefs.groups = prefs.groups.filter { it.name != name }
+        if (selected?.let(markers::get) == null) select(null)
+        markersChanged()
+    }
+
+    /** The MGRS grid for the part of the map in view, when MGRS Grid Lines is on; drawn again each time the map comes to rest. */
+    internal fun gridChanged() {
+        val src = style?.getSourceAs<GeoJsonSource>(GRID) ?: return
+        val m = map ?: return
+        val w = b.root.width.toFloat()
+        val h = b.root.height.toFloat()
+        if (!prefs.gridLines || w == 0f) { src.setGeoJson(FeatureCollection.fromFeatures(emptyList())); return }
+        // The part not under the top strip or a panel, so that the lines' digits sit on its edges.
+        val open = b.panel.visibility == View.VISIBLE
+        val top = b.top.bottom.toFloat()
+        val right = if (open && sideways) b.panel.left.toFloat() else w
+        val bottom = if (open && !sideways) b.panel.top.toFloat() else h
+        val corners = listOf(PointF(0f, top), PointF(right, top), PointF(0f, bottom), PointF(right, bottom)).map { m.projection.fromScreenLocation(it) }
+        val grid = Grid.features(corners.minOf { it.longitude }, corners.minOf { it.latitude }, corners.maxOf { it.longitude }, corners.maxOf { it.latitude },
+            m.cameraPosition.zoom)
+        src.setGeoJson(FeatureCollection.fromFeatures(grid.map { g ->
+            val points = g.points.map { Point.fromLngLat(it.second, it.first) }
+            Feature.fromGeometry(if (g.isLine) LineString.fromLngLats(points) else points[0]).apply {
+                addStringProperty("kind", g.kind)
+                addStringProperty("label", g.label)
+                addStringProperty("anchor", g.anchor)
+            }
+        }))
     }
 
     private fun areasOnMap(): FeatureCollection = FeatureCollection.fromFeatures(
@@ -820,7 +962,7 @@ class MainActivity : AppCompatActivity() {
     /* ---------- where things sit ---------- */
 
     /** Feet and miles where they are used on the road, else metres and kilometres. */
-    private val imperial = Locale.getDefault().country in setOf("US", "GB", "LR", "MM")
+    internal val imperial = Locale.getDefault().country in setOf("US", "GB", "LR", "MM")
 
     private val sideways get() = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
@@ -876,6 +1018,9 @@ class MainActivity : AppCompatActivity() {
         b.progress.translationY = top.toFloat()
         b.toast.translationY = top + dp(10).toFloat()
         b.toast.translationX = dx
+        // Above the panel, else above the buttons at the foot of the map.
+        b.routeStatus.translationY = -(if (open && !sideways) bottom else h - minOf(b.menu.top, b.foot.top)).toFloat() - dp(10)
+        b.routeStatus.translationX = dx
         // The zoom buttons stay on the map beside or above an open panel, when there is room.
         val gap = dp(12)
         val beside = if (open && sideways) right + gap else insets.right + gap
@@ -1345,13 +1490,58 @@ class MainActivity : AppCompatActivity() {
         }
         val reach = dp(26).toFloat()                 // a gloved finger is not exact
         val around = RectF(p.x - reach, p.y - reach, p.x + reach, p.y + reach)
-        m.queryRenderedFeatures(around, MARKER_DOTS).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
-        m.queryRenderedFeatures(around, ARROW_LINES).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
-        m.queryRenderedFeatures(around, ROUTE_LINES, ROUTE_DASHED).firstOrNull()?.getStringProperty("id")?.let { openMarker(it, fromList = false); return true }
-        m.queryRenderedFeatures(around, TRACK_LINES).firstOrNull()?.getStringProperty("id")?.takeIf { it != RECORDING }?.let { openMarker(it, fromList = false); return true }
+        // Every item under the finger: one opens; several on top of each other, a list to choose from.
+        val hits = ArrayList<Pair<String, String>>()
+        fun take(kind: String, vararg layers: String) { for (f in m.queryRenderedFeatures(around, *layers)) f.getStringProperty("id")?.let { hits += kind to it } }
+        take(Pick.MARKER, MARKER_DOTS)
+        take(Pick.ARROW, ARROW_LINES, ARROW_HEADS)
+        take(Pick.ROUTE, ROUTE_LINES, ROUTE_DASHED)
+        take(Pick.TRACK, TRACK_LINES)
+        take(Pick.SHAPE, SHAPE_LINES, SHAPE_NAMES)
+        val items = Pick.unique(hits, ignore = setOf(RECORDING, DRAWN))
+        if (items.size == 1) { openItem(items[0].first, items[0].second); return true }
+        if (items.size > 1) { chooseItem(items); return true }
         m.queryRenderedFeatures(around, PEER_SYMBOLS).firstOrNull()?.getStringProperty("id")?.let { openPeer(it, fromList = false); return true }
         m.queryRenderedFeatures(around, NODE_SYMBOLS).firstOrNull()?.getNumberProperty("num")?.let { openNode(it.toInt(), fromList = false); return true }
         return false
+    }
+
+    private fun openItem(kind: String, id: String) = if (kind == Pick.SHAPE) openShape(id, fromList = false) else openMarker(id, fromList = false)
+
+    /** Several items under the finger: which one? Each with its name, kind and group. */
+    private fun chooseItem(items: List<Pair<String, String>>) {
+        val texts = items.map { (kind, id) ->
+            val shape = if (kind == Pick.SHAPE) shapes.get(id) else null
+            val m = if (shape == null) markers.get(id) else null
+            Pick.text(shape?.label ?: m?.label.orEmpty(), if (shape != null) Shapes.name(shape) else Pick.title(kind), shape?.group ?: m?.group.orEmpty())
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Which One?")
+            .setItems(texts.toTypedArray()) { _, i -> openItem(items[i].first, items[i].second) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** The shared shape whose panel is open. */
+    internal var selectedShape: String? = null
+        private set
+
+    internal fun openShape(id: String, fromList: Boolean) {
+        if (shapes.get(id) == null) return
+        selectedShape = id
+        panels.showShape(fromList)
+    }
+
+    /** Brings a shared shape into view, whole. */
+    internal fun showShapeOnMap(id: String) {
+        val ring = shapes.get(id)?.let(Shapes::ring) ?: return
+        val bounds = LatLngBounds.from(ring.maxOf { it.first }, ring.maxOf { it.second }, ring.minOf { it.first }, ring.minOf { it.second })
+        val m = map ?: return
+        if (follow != Follow.FREE) setFollow(Follow.FREE)
+        // Inside the part of the map in view (not under the top strip or the panel); the map's own padding stays as it is.
+        val pad = IntArray(4) { mapPadding[it].toInt() + dp(40) }
+        val fit = m.getCameraForLatLngBounds(bounds, pad) ?: return
+        m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(fit.target).zoom(fit.zoom).build()), 400)
     }
 
     internal fun openMarker(id: String, fromList: Boolean) {
@@ -1511,6 +1701,7 @@ class MainActivity : AppCompatActivity() {
     internal fun fix(): Fix? = lastLocation()?.toFix()
 
     internal fun markersChanged() {
+        style?.getSourceAs<GeoJsonSource>(SHAPES)?.setGeoJson(shapesOnMap())
         style?.getSourceAs<GeoJsonSource>(MARKERS)?.setGeoJson(markersOnMap())
         style?.getSourceAs<GeoJsonSource>(TRACKS)?.setGeoJson(tracksOnMap())
         style?.getSourceAs<GeoJsonSource>(ARROWS)?.setGeoJson(arrowsOnMap())
@@ -1528,11 +1719,20 @@ class MainActivity : AppCompatActivity() {
         return String.format(Locale.US, if (brief) "%s, bearing %03d°" else "%s from you, bearing %03d° true", far, bearing)
     }
 
+    /** The group Export Group writes (null: everything); "" is Ungrouped. */
+    private var exporting: String? = null
+
     private val saveFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/geo+json")) { uri ->
+        val group = exporting
+        exporting = null
         if (uri == null) return@registerForActivityResult
         try {
-            contentResolver.openOutputStream(uri)?.use { it.write(markers.toGeoJson { m -> m.route?.let(routeLines::line) }.toByteArray()) }
-            toast("Markers exported.")
+            // A group's items with the group named at the top of the file (as Export in the browser writes it); else all, the shared shapes too.
+            val list = markers.markers.filter { group == null || it.group == group }
+            val shapeList = shapes.shapes.filter { group == null || it.group == group }
+            val text = Drawings.toGeoJson(list, line = { m -> m.route?.let(routeLines::line) }, shapes = shapeList, group = group.orEmpty())
+            contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+            toast(if (group == null) "Markers exported." else "${group.ifEmpty { "Ungrouped" }} exported.")
         } catch (e: Exception) {
             toast("Couldn't save the file.")
         }
@@ -1543,7 +1743,13 @@ class MainActivity : AppCompatActivity() {
         try {
             val text = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
             val loaded = Drawings.fromGeoJson(text, prefs.color, markers::newId)
-            val added = markers.addAll(loaded.markers)
+            // A file from other software becomes a group named after the file, as on the map in the browser.
+            val name = contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }.orEmpty()
+            val items = Groups.imported(loaded, name)
+            val added = markers.addAll(items)
+            // The groups that get items are shown.
+            for (g in items.map { it.group }.distinct()) if (hidden(g)) setGroupState(groupState(g).copy(hidden = false))
             markersChanged()
             panels.refresh()
             toast(
@@ -1558,7 +1764,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    internal fun saveMarkersFile() = saveFile.launch("fieldmap-markers-${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())}.geojson")
+    internal fun saveMarkersFile() { exporting = null; saveFile.launch("fieldmap-markers-${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())}.geojson") }
+
+    /** Export Group: a file of one group, named after it ("Water-Points-2026-11-27.geojson", as the map in the browser names it). */
+    internal fun saveGroupFile(group: String) {
+        exporting = group
+        val base = java.text.Normalizer.normalize(group.ifEmpty { "Ungrouped" }, java.text.Normalizer.Form.NFKD)
+            .replace(Regex("[^\\w\\s-]"), "").trim().replace(Regex("\\s+"), "-").take(40).ifEmpty { "map-drawings" }
+        saveFile.launch("$base-${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())}.geojson")
+    }
     internal fun loadMarkersFile() = loadFile.launch(arrayOf("*/*"))
 
     /* ---------- the phone's position ---------- */
@@ -1809,6 +2023,12 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val AREAS = "fm-areas"
         const val MARKERS = "fm-markers"
+        const val SHAPES = "fm-shapes"
+        const val SHAPE_LINES = "fm-shapes-line"
+        const val SHAPE_NAMES = "fm-shapes-name"
+        const val GRID = "fm-grid"
+        const val GRID_LINES = "fm-grid-line"
+        const val ARROW_HEADS = "fm-arrows-head"
         const val ARROWS = "fm-arrows"
         const val ARROW_LINES = "fm-arrows-line"
         const val ARROW_ENDS = "fm-arrows-end"

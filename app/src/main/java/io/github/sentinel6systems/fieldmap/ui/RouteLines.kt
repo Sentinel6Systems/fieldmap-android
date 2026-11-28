@@ -41,7 +41,8 @@ class LegLine(val line: List<Pair<Double, Double>>, val state: LegState, val hea
 /**
  * The lines of routes' legs along roads and trails (geo/Router.kt), worked out one at a time on
  * a thread of their own and kept, also in a file, so that they are not worked out again at every
- * start. Only a route's points travel between devices; each one draws the legs from its own
+ * start. A leg is kept under what the router is asked (Routes.Ask): a change of a route's Route
+ * Options, or of the items of the group it avoids, works its legs out again. Only a route's points travel between devices; each one draws the legs from its own
  * routing files, which all come from the same server. The points stay where they were put
  * (Routes.roadLeg). When BRouter finds no way (the road nearest a point cannot be reached), the
  * roads nearest the end point on the map are tried, then those nearest the start, then both: the
@@ -61,16 +62,31 @@ class RouteLines(private val a: MainActivity) {
 
     init { load() }
 
+    /** What the router is asked for a route's legs, with the markers and shapes there are now; null: Straight Line. */
+    fun request(r: PlannedRoute): Routes.Ask? = Routes.ask(r, a.markers.markers, a.shapes.shapes)
+
     /** The legs of a route as they are drawn now. `ask`: work out the ones not known yet. */
-    fun legs(r: PlannedRoute, ask: Boolean = true): List<LegLine> = r.points.zipWithNext().map { (p, q) ->
-        val profile = r.type.profile ?: return@map LegLine(listOf(p, q), LegState.STRAIGHT)
-        val k = key(r.type, p, q)
-        if (known.containsKey(k)) known[k]?.let { Routes.roadLeg(p, q, it) }?.let { LegLine(it.line, LegState.ROUTED, it.head, it.tail, it.offRoad) }
-            ?: LegLine(listOf(p, q), LegState.NO_WAY)
-        else {
-            if (ask) ask(k, p, q, r.type, profile)
-            LegLine(listOf(p, q), LegState.WAITING)
+    fun legs(r: PlannedRoute, ask: Boolean = true): List<LegLine> {
+        val request = request(r)
+        return r.points.zipWithNext().map { (p, q) ->
+            if (request == null) return@map LegLine(listOf(p, q), LegState.STRAIGHT)
+            val k = key(request, p, q)
+            if (known.containsKey(k)) known[k]?.let { Routes.roadLeg(p, q, it) }?.let { LegLine(it.line, LegState.ROUTED, it.head, it.tail, it.offRoad) }
+                ?: LegLine(listOf(p, q), LegState.NO_WAY)
+            else {
+                if (ask) ask(k, p, q, r.type, request)
+                LegLine(listOf(p, q), LegState.WAITING)
+            }
         }
+    }
+
+    /** Legs being worked out now or waiting their turn, of all routes. */
+    val working get() = asked.size
+
+    /** This route's legs being worked out now or waiting their turn (not "no route found": not known yet). */
+    fun working(r: PlannedRoute): Int {
+        val request = request(r) ?: return 0
+        return r.points.zipWithNext().count { (p, q) -> key(request, p, q) in asked }
     }
 
     /** The whole line of a route as it is drawn now (for a file). */
@@ -84,7 +100,7 @@ class RouteLines(private val a: MainActivity) {
         a.panels.refresh()
     }
 
-    private fun ask(k: String, p: Pair<Double, Double>, q: Pair<Double, Double>, type: RouteType, profile: String) {
+    private fun ask(k: String, p: Pair<Double, Double>, q: Pair<Double, Double>, type: RouteType, request: Routes.Ask) {
         if (!asked.add(k)) return
         fun done(line: List<Pair<Double, Double>>?) = main.post {
             asked.remove(k)
@@ -95,7 +111,7 @@ class RouteLines(private val a: MainActivity) {
         }
         // A line that ends too far from its point is no way either.
         fun tryLeg(from: Pair<Double, Double>, to: Pair<Double, Double>) =
-            (try { router().leg(from, to, profile) } catch (e: Exception) { null })?.takeIf { Routes.roadLeg(p, q, it) != null }
+            (try { router().leg(from, to, request.profile, request.params) } catch (e: Exception) { null })?.takeIf { Routes.roadLeg(p, q, it) != null }
         worker.execute {
             tryLeg(p, q)?.let { done(it); return@execute }
             // No way: the roads near both ends, from the map (main thread), then tried here.
@@ -125,8 +141,8 @@ class RouteLines(private val a: MainActivity) {
     // Written a little after the last change, with the legs of the routes there are now.
     private val save = Runnable {
         val legs = JSONObject()
-        val wanted = (a.markers.markers.mapNotNull { it.route } + listOfNotNull(a.routes.points?.let { PlannedRoute(it.toList(), type = a.routes.type) }))
-            .flatMap { r -> r.points.zipWithNext().map { (p, q) -> key(r.type, p, q) } }.toSet()
+        val wanted = (a.markers.markers.mapNotNull { it.route } + listOfNotNull(a.routes.route))
+            .flatMap { r -> request(r)?.let { request -> r.points.zipWithNext().map { (p, q) -> key(request, p, q) } }.orEmpty() }.toSet()
         for ((k, line) in known) if (k in wanted) legs.put(k, line?.let { l -> JSONArray().apply { for ((lat, lon) in l) put(JSONArray().put(lat).put(lon)) } } ?: JSONObject.NULL)
         try { file.writeText(JSONObject().put("version", 1).put("legs", legs).toString()) } catch (e: Exception) {}
     }
@@ -146,7 +162,7 @@ class RouteLines(private val a: MainActivity) {
     }
 
     companion object {
-        fun key(type: RouteType, p: Pair<Double, Double>, q: Pair<Double, Double>) =
-            String.format(Locale.US, "%s|%.6f,%.6f|%.6f,%.6f", type.key, p.first, p.second, q.first, q.second)
+        fun key(request: Routes.Ask, p: Pair<Double, Double>, q: Pair<Double, Double>) =
+            String.format(Locale.US, "%s|%.6f,%.6f|%.6f,%.6f", request.key, p.first, p.second, q.first, q.second)
     }
 }

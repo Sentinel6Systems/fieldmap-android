@@ -115,12 +115,12 @@ wire {
 tasks.matching { it.name.startsWith("generate") && it.name.endsWith("Protos") }.configureEach { dependsOn(meshtasticUnpack) }
 
 // Routes that follow roads and trails (geo/Router.kt): the BRouter engine (MIT), its Java sources
-// at the release pinned here and checked against its SHA-256, compiled with the app; and its car
-// and hiking profiles, as assets. The repository holds none of BRouter's files. See README, "Build".
+// at the release pinned here and checked against its SHA-256, compiled with the app; and its car,
+// hiking and bicycle (trekking) profiles, as assets. The repository holds none of BRouter's files. See README, "Build".
 val brouterVersion = "1.7.10"
 val brouterSha256 = "cb83f220332de8223476e029a9b075157fb74401c69a991ceaa013486c29760f"
 val brouterModules = listOf("brouter-core", "brouter-util", "brouter-expressions", "brouter-codec", "brouter-mapaccess")
-val brouterProfiles = listOf("lookups.dat", "car-vario.brf", "hiking-mountain.brf")
+val brouterProfiles = listOf("lookups.dat", "car-vario.brf", "hiking-mountain.brf", "trekking.brf")
 val brouterArchive = layout.buildDirectory.file("brouter/brouter-$brouterVersion.tar.gz")
 val brouterGet = tasks.register("brouterGet") {
     val archive = brouterArchive
@@ -158,6 +158,8 @@ val brouterUnpack = tasks.register<Sync>("brouterUnpack") {
 val brouterAssets = layout.buildDirectory.dir("brouter/assets")
 val brouterAssetsUnpack = tasks.register<Sync>("brouterAssets") {
     dependsOn(brouterGet)
+    // Gradle does not see a change of the list in the includes below: a profile added comes with it.
+    inputs.property("profiles", brouterProfiles)
     from(tarTree(resources.gzip(brouterArchive))) {
         include(brouterProfiles.map { "*/misc/profiles2/$it" } + "*/LICENSE")
         eachFile { path = "brouter/" + if (name == "LICENSE") "LICENSE.txt" else name }

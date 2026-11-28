@@ -126,6 +126,8 @@ class Sharing(private val a: MainActivity) {
     fun serverChanged() {
         if (on) leave()
         a.markers.replaceAll(a.markers.markers.map { if (it.shared) it.copy(shared = false, updated = "", by = "") else it })
+        // The shapes are the old server's: they go with it.
+        a.shapes.clear()
         a.prefs.pending = Pending()
         box = Box.UNKNOWN
         base = null
@@ -144,6 +146,13 @@ class Sharing(private val a: MainActivity) {
         return m.copy(shared = true, updated = ShareJson.time(System.currentTimeMillis()), by = a.prefs.uid).also(MeshShare::markerChanged)
     }
 
+    /** A shared shape was moved to another group here: the box is to hear of it. */
+    fun shapeEdited(id: String) {
+        val p = a.prefs.pending
+        a.prefs.pending = p.copy(put = p.put + id, deleted = p.deleted - id)
+        soon()
+    }
+
     /** A shared marker was deleted here, or taken back to this phone alone: it goes from the box. */
     fun removed(id: String) {
         val p = a.prefs.pending
@@ -156,9 +165,11 @@ class Sharing(private val a: MainActivity) {
      * A shared marker changed over the mesh. The last change wins, as with the server; when it
      * wins here, the server is told too (so that the devices on the server have it as well).
      */
-    fun fromMesh(change: MeshMarkerChange) {
+    fun fromMesh(heard: MeshMarkerChange) {
+        val before = a.markers.get(heard.id)
+        // The mesh does not carry groups: a marker keeps the one it has here.
+        val change = if (before != null && heard.marker != null) heard.copy(marker = heard.marker.copy(group = before.group)) else heard
         val state = ShareState(0, false, emptyList(), listOfNotNull(change.marker), if (change.marker == null) listOf(change.id) else emptyList())
-        val before = a.markers.get(change.id)
         // Over the mesh a change can come late, or again: one that is not newer than what is here changes nothing.
         if (before != null && before.shared && ShareJson.millis(before.updated) >= ShareJson.millis(change.at)) return
         // A plain marker for an arrow (an arrow for a route) comes from an app that does not know them: ours stays.
@@ -168,10 +179,13 @@ class Sharing(private val a: MainActivity) {
         var pending = merged.pending
         if (change.marker != null && after == change.marker) pending = pending.copy(put = pending.put + change.id, deleted = pending.deleted - change.id)
         if (change.marker == null && before?.shared == true && after == null) pending = pending.copy(deleted = pending.deleted + (change.id to change.at))
-        a.prefs.pending = pending
+        a.prefs.pending = withShapes(pending)
         a.sharedMarkers(merged.markers)
         if (pending.put.isNotEmpty() || pending.deleted.isNotEmpty()) soon()
     }
+
+    /** The merge of markers knows no shapes: a shape still to be sent stays so. */
+    private fun withShapes(p: Pending) = p.copy(put = p.put + a.prefs.pending.put.filter { a.markers.get(it) == null && a.shapes.get(it) != null })
 
     /** Still to be sent to the box. */
     fun waiting(id: String) = id in a.prefs.pending.put
@@ -299,9 +313,11 @@ class Sharing(private val a: MainActivity) {
         peers = state.positions.filter { it.uid != a.prefs.uid }
         peersAt = now()
         a.peersChanged()
-        if (state.full || state.markers.isNotEmpty() || state.removed.isNotEmpty()) {
+        if (state.full || state.markers.isNotEmpty() || state.removed.isNotEmpty() || state.shapes.isNotEmpty()) {
+            // The shapes first: they and the routes that avoid them are drawn again with the markers.
+            a.shapes.take(state, a.prefs.pending)
             val merged = ShareMerge.merge(a.markers.markers, state, a.prefs.pending)
-            a.prefs.pending = merged.pending
+            a.prefs.pending = withShapes(merged.pending)
             a.sharedMarkers(merged.markers)
         }
     }
@@ -314,6 +330,18 @@ class Sharing(private val a: MainActivity) {
 
     private suspend fun send(to: String): Long? {
         for (id in a.prefs.pending.put) {
+            // A shared shape moved to another group here (Rename Group): its feature as the server keeps it.
+            val shape = if (a.markers.get(id) == null) a.shapes.get(id)?.takeIf { it.feature.isNotEmpty() } else null
+            if (shape != null) {
+                val r = ShareClient.put(to + "markers/" + id, shape.feature)
+                val p = a.prefs.pending
+                when (r.code) {
+                    200 -> if (a.shapes.get(id)?.feature == shape.feature) a.prefs.pending = p.copy(put = p.put - id)
+                    400, 413, 507 -> a.prefs.pending = p.copy(put = p.put - id)
+                    else -> return trouble(r) ?: info.interval * 1000L
+                }
+                continue
+            }
             val m = a.markers.get(id)?.takeIf { it.shared }
             val r = if (m != null) ShareClient.put(to + "markers/" + id, ShareJson.marker(m)) else null
             val p = a.prefs.pending

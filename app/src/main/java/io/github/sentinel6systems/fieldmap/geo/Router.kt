@@ -3,6 +3,7 @@ package io.github.sentinel6systems.fieldmap.geo
 import btools.router.OsmNodeNamed
 import btools.router.RoutingContext
 import btools.router.RoutingEngine
+import btools.router.RoutingParamCollector
 import java.io.File
 
 /**
@@ -15,10 +16,10 @@ class Router(private val segments: File, private val profiles: File) {
     /**
      * The line (lat to lon) from a to b with the profile (RouteType.profile), from the road or
      * trail nearest a to the one nearest b; null when the routing files do not cover the way or
-     * no way was found.
+     * no way was found. `params`: the rest of the request (Routes.Ask): Route Options, Way and
+     * avoid areas, taken as the server's BRouter takes them from its address (RouteServer).
      */
-    fun leg(a: Pair<Double, Double>, b: Pair<Double, Double>, profile: String): List<Pair<Double, Double>>? {
-        val context = RoutingContext().apply { localFunction = File(profiles, "$profile.brf").path }
+    fun leg(a: Pair<Double, Double>, b: Pair<Double, Double>, profile: String, params: Map<String, String> = emptyMap()): List<Pair<Double, Double>>? {
         val waypoints = listOf(a, b).mapIndexed { i, (lat, lon) ->
             OsmNodeNamed().apply {
                 name = if (i == 0) "from" else "to"
@@ -26,6 +27,10 @@ class Router(private val segments: File, private val profiles: File) {
                 ilat = ((lat + 90) * 1e6 + 0.5).toInt()
             }
         }
+        val context = RoutingContext()
+        // setParams takes out of the map what it has read: a copy of its own.
+        RoutingParamCollector().setParams(context, waypoints, HashMap(params))
+        context.localFunction = File(profiles, "$profile.brf").path
         val engine = RoutingEngine(null, null, segments, waypoints, context).apply { quite = true }
         try { engine.doRun(TIMEOUT_MS) } catch (e: Exception) { return null }
         if (engine.errorMessage != null) return null

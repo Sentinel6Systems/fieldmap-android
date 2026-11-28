@@ -7,9 +7,10 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * The print tool's arrows (fieldmap-server print/src/main.js, arrowsFC): a line from the start
- * to the head, with two short strokes back from the head, 25° either side, 8 % of the length
- * (at least 15 m, at most 400 m). On a sphere: good to a few parts in a thousand, as there.
+ * The print tool's arrows (fieldmap-server print/src/shared.js, arrowHead): a line from the start
+ * to the head, with two short strokes back from the head, 28° either side, as long as the map
+ * says (HEAD_PX on the screen at its zoom), at most 40 % of the arrow. On a sphere: good to a few
+ * parts in a thousand, as there.
  */
 object Arrows {
     private const val R = 6_371_008.8
@@ -37,13 +38,19 @@ object Arrows {
         return Math.toDegrees(p2) to ((Math.toDegrees(l2) + 540) % 360 - 180)
     }
 
-    /** The two ends of the head's strokes (lat to lon); each goes to the arrow's head. */
-    fun head(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Pair<Pair<Double, Double>, Pair<Double, Double>> {
+    /** Pixels on the screen a head's strokes are long, at any zoom. */
+    const val HEAD_PX = 18.0
+
+    /** Meters a head's strokes are long at the head's latitude and the map's zoom: HEAD_PX on the screen. */
+    fun headLength(lat: Double, zoom: Double) = HEAD_PX * Grid.metersPerPixel(lat, zoom)
+
+    /** The two ends of the head's strokes (lat to lon), `length` meters (at most 40 % of the arrow); each goes to the arrow's head. */
+    fun head(lat1: Double, lon1: Double, lat2: Double, lon2: Double, length: Double): Pair<Pair<Double, Double>, Pair<Double, Double>> {
         val (distance, _) = inverse(lat1, lon1, lat2, lon2)
-        val size = (distance * 0.08).coerceIn(15.0, 400.0)
+        val size = minOf(length, distance * 0.4)
         // The bearing from the head back to the start.
         val back = inverse(lat2, lon2, lat1, lon1).second
-        return destination(lat2, lon2, back - 25, size) to destination(lat2, lon2, back + 25, size)
+        return destination(lat2, lon2, back - 28, size) to destination(lat2, lon2, back + 28, size)
     }
 
     /** How far a label along the shaft is turned (degrees clockwise from level), kept upright. */

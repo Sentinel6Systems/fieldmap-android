@@ -39,6 +39,16 @@ object Utm {
         (212378941.0 / 319334400) * N6,
     )
 
+    private val BETA = doubleArrayOf(
+        0.0,
+        N / 2 - (2.0 / 3) * N2 + (37.0 / 96) * N3 - (1.0 / 360) * N4 - (81.0 / 512) * N5 + (96199.0 / 604800) * N6,
+        (1.0 / 48) * N2 + (1.0 / 15) * N3 - (437.0 / 1440) * N4 + (46.0 / 105) * N5 - (1118711.0 / 3870720) * N6,
+        (17.0 / 480) * N3 - (37.0 / 840) * N4 - (209.0 / 4480) * N5 + (5569.0 / 90720) * N6,
+        (4397.0 / 161280) * N4 - (11.0 / 504) * N5 - (830251.0 / 7257600) * N6,
+        (4583.0 / 161280) * N5 - (108847.0 / 3991680) * N6,
+        (20648693.0 / 638668800) * N6,
+    )
+
     private const val D2R = Math.PI / 180
 
     class Position(val zone: Int, val south: Boolean, val easting: Double, val northing: Double)
@@ -63,8 +73,10 @@ object Utm {
         return "CDEFGHJKLMNPQRSTUVWX"[i.coerceIn(0, 19)]
     }
 
-    fun toUtm(lat: Double, lon: Double): Position {
-        val zone = zoneFor(lat, lon)
+    fun toUtm(lat: Double, lon: Double): Position = toUtm(lat, lon, zoneFor(lat, lon))
+
+    /** In a given zone, also outside it (the grid on the map runs each zone's lines to its edge). */
+    fun toUtm(lat: Double, lon: Double, zone: Int): Position {
         val lon0 = (zone - 1) * 6 - 180 + 3
         val phi = lat * D2R
         val lambda = (lon - lon0) * D2R
@@ -84,6 +96,35 @@ object Utm {
         val x = K0 * A * eta + 500000
         val y = K0 * A * xi + if (lat < 0) 10000000 else 0
         return Position(zone, lat < 0, x, y)
+    }
+
+    /**
+     * The other way (lat to lon), north of the equator's reckoning: a northing below the equator
+     * is negative, so that one zone runs on across it (the grid on the map).
+     */
+    fun fromUtm(zone: Int, easting: Double, northing: Double): Pair<Double, Double> {
+        val lon0 = (zone - 1) * 6 - 180 + 3
+        val xi = northing / (K0 * A)
+        val eta = (easting - 500000) / (K0 * A)
+        var xiP = xi
+        var etaP = eta
+        for (j in 1..6) {
+            xiP -= BETA[j] * sin(2 * j * xi) * cosh(2 * j * eta)
+            etaP -= BETA[j] * cos(2 * j * xi) * sinh(2 * j * eta)
+        }
+        val sinhEta = sinh(etaP)
+        val sinXi = sin(xiP)
+        val cosXi = cos(xiP)
+        val tauP = sinXi / sqrt(sinhEta * sinhEta + cosXi * cosXi)
+        var tau = tauP
+        for (i in 0 until 20) {
+            val sigma = sinh(E * atanh((E * tau) / sqrt(1 + tau * tau)))
+            val tauI = tau * sqrt(1 + sigma * sigma) - sigma * sqrt(1 + tau * tau)
+            val d = ((tauP - tauI) / sqrt(1 + tauI * tauI)) * ((1 + (1 - E * E) * tau * tau) / ((1 - E * E) * sqrt(1 + tau * tau)))
+            tau += d
+            if (abs(d) <= 1e-12) break
+        }
+        return Math.toDegrees(kotlin.math.atan(tau)) to Math.toDegrees(atan2(sinhEta, cosXi)) + lon0
     }
 
     /** 100 km square letters for an easting/northing in a zone (MGRS, AA scheme). */
