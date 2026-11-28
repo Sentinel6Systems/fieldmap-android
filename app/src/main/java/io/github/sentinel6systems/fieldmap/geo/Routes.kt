@@ -162,6 +162,10 @@ object Routes {
         RouteType.WALKING to listOf(
             Option("avoid-steps", "Avoid Steps", mapOf("allow_steps" to "0")),
             Option("avoid-wet", "Avoid Wet Ground", mapOf("iswet" to "1")),
+            // The shortest way on any road, track or trail open on foot (BRouter's shortest_way): busy
+            // roads too. It leaves out the profile's preferences, so Trail Difficulty, Avoid Steps and
+            // Avoid Wet Ground do not apply with it.
+            Option("any-road", "Use Any Road or Trail", mapOf("shortest_way" to "1")),
         ),
     )
 

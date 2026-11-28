@@ -200,7 +200,8 @@ the same roads on every device:
 - **Driving:** **Avoid Highways**, **Allow Dirt Tracks**, **Avoid Big Towns** and **Fuel Saver** (a lower target
   speed).
 - **Walking:** **Avoid Steps**, **Avoid Wet Ground**, and **Trail Difficulty**: **Easy**, **Moderate** (the default)
-  or **Hard**.
+  or **Hard**. **Use Any Road or Trail** takes the shortest way on any road, track or trail open on foot, busy roads
+  too; the other Walking options then do not apply.
 - **Avoid Areas In:** a group from the server's map. The route keeps away from that group's markers (100 m around
   each), circles, rectangles and polygons, and does not cross its arrows. The app has no groups of its own: it
   lists the groups of the items it got from the server or a file. A group with more than 400 points in all is
@@ -219,18 +220,18 @@ the server's map in the browser.
 
 While the app works out legs, a note at the bottom of the map says **Working out routes: N legs to go**, and the
 route's panel says **Working out N legs…**. A leg still being worked out is not counted as "no route found". A long
-leg can take up to 30 seconds.
+leg can take up to 60 seconds.
 
 **Routing data** comes with your offline areas: when you download an area, the app also downloads the server's
 routing data for it. **Menu** › **Offline Areas** shows its state under **Routing Data**. The server owner has to
 build the **Routing Data** layer on the server first.
 
-> **Tip: use more points, closer together.** The app works out each leg between two points on its own, with a time
-> limit of 30 seconds per leg. A short leg is found quickly and follows the road you mean. A very long leg has far
-> more roads to search: it can run out of time and come out as a dashed straight line, or take a road you didn't
-> intend. Put a point at each turn you care about and every few miles along the way, rather than a few points far
-> apart. The route is then quicker to work out, easier to fix by moving or adding one point, and comes out the same
-> when another device recreates it from the shared points.
+> **Tip: place the points to fit the area.** Each leg between two points is worked out on its own, so the
+> route takes the way it finds best between them. In a dense area, with many roads or trails close together (a
+> town, a city, a network of paths), put the points closer together, at each turn you care about, to keep the
+> route on the course you intend. In a sparse area (open country, a long road with few turns), the points can be
+> far apart. If a leg takes a road you don't want, add a point on the road you do want. The route is then easy to
+> fix by moving or adding one point, and every device draws the same route from the shared points.
 
 **Menu** › **Settings** › **Routes** chooses what a route shows: **Direction Indicators**, **Leg Distances on
 Map**, **Total Distance and Time** and **Leg Details**.

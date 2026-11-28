@@ -70,7 +70,7 @@ message MeshRoute {
   uint32 mph = 9;            // its speed (one of the app's choices)
   uint32 type = 10;          // its legs: 0 straight, 1 driving (roads), 2 walking (roads, tracks, trails), 3 bicycle
   // Its Route Options, one bit each: 1 avoid-highways, 2 dirt-tracks, 4 avoid-towns, 8 fuel-saver
-  // (driving); 16 avoid-steps, 32 avoid-wet, 64 easy, 128 hard (walking). An app from before them
+  // (driving); 16 avoid-steps, 32 avoid-wet, 64 easy, 128 hard, 256 any-road (walking). An app from before them
   // leaves these three fields alone.
   uint32 options = 11;
   uint32 alternative = 12;   // its Way: 0 the best, 1 to 3 the router's second to fourth

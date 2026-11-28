@@ -97,6 +97,7 @@ class RouteOptionsTest {
             driving,
             route(PlannedRoute(points, 2, RouteType.WALKING, listOf("avoid-steps", "avoid-wet", "easy"))),
             route(PlannedRoute(points, 2, RouteType.WALKING, listOf("hard"))),
+            route(PlannedRoute(points, 2, RouteType.WALKING, listOf("avoid-wet", "any-road", "easy"))),
             route(PlannedRoute(points, 10, RouteType.BICYCLE, emptyList(), "Hazards", 1)),
         )) {
             val back = MeshCodec.change(MeshCodec.decode(MeshCodec.marker(r)!!)!!.route!!)!!.marker!!
@@ -157,6 +158,8 @@ class RouteOptionsTest {
         val walk = Routes.ask(PlannedRoute(points, 2, RouteType.WALKING, listOf("avoid-steps", "avoid-wet", "hard")), items, shapes)!!
         assertEquals(mapOf("profile:allow_steps" to "0", "profile:iswet" to "1", "profile:SAC_scale_limit" to "5"), walk.params)
         assertEquals(mapOf("profile:SAC_scale_limit" to "1"), Routes.ask(PlannedRoute(points, 2, RouteType.WALKING, listOf("easy")), items, shapes)!!.params)
+        assertEquals(mapOf("profile:shortest_way" to "1"), Routes.ask(PlannedRoute(points, 2, RouteType.WALKING, listOf("any-road")), items, shapes)!!.params)
+        assertEquals(listOf("avoid-wet", "any-road", "hard"), Routes.cleanOptions(RouteType.WALKING, listOf("hard", "any-road", "avoid-wet")))
         val bike = Routes.ask(PlannedRoute(points, 10, RouteType.BICYCLE, avoid = "Nobody", alternative = 3), items, shapes)!!
         assertEquals("trekking", bike.profile)
         assertEquals(mapOf("alternativeidx" to "3"), bike.params)

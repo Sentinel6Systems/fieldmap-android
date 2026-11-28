@@ -96,7 +96,7 @@ object MeshCodec {
     private val TYPES = listOf(RouteType.STRAIGHT, RouteType.DRIVING, RouteType.WALKING, RouteType.BICYCLE)
 
     /** A route's options on the mesh: bit n is the option at place n here. */
-    private val OPTIONS = listOf("avoid-highways", "dirt-tracks", "avoid-towns", "fuel-saver", "avoid-steps", "avoid-wet", "easy", "hard")
+    private val OPTIONS = listOf("avoid-highways", "dirt-tracks", "avoid-towns", "fuel-saver", "avoid-steps", "avoid-wet", "easy", "hard", "any-road")
 
     /** Degrees * 1e5, as a route's steps count them. */
     private fun fine(v: Double) = Math.round(v * 1e5).toInt()

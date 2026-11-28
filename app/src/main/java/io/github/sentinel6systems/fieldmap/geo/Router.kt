@@ -39,6 +39,6 @@ class Router(private val segments: File, private val profiles: File) {
 
     companion object {
         /** A leg that takes longer is given up (it is then drawn straight). */
-        const val TIMEOUT_MS = 30_000L
+        const val TIMEOUT_MS = 60_000L
     }
 }

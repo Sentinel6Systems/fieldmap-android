@@ -127,6 +127,9 @@ export, import), shared shapes and their panel, the MGRS grid lines, arrow heads
 Route. Not yet tried: routes with options on real routing data, the "Working out routes" note (on the emulator
 legs failed at once, without routing data), and Rename and Delete Group with shapes shared by a real server.
 
+0.2.1: the unit tests pass, including that BRouter's walking profile reads Use Any Road or Trail
+(shortest_way). The longer limit per leg (60 seconds) and the new option are not yet tried on a device.
+
 ## Not tested yet
 
 A server whose Wi-Fi has no internet, a download of several gigabytes, a long drive or hike, and
