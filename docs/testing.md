@@ -113,6 +113,20 @@ means, the order of the ways (the local network, the direct addresses, NetBird),
 failed, the rules that stop the client, and that network isolation on the server changes only the key (no new
 join, no group chosen by the app). Network isolation itself is the server's: see fieldmap-server's tests.
 
+## Route Options, groups, shapes and the grid (0.2.0)
+
+187 unit tests pass (one more needs a real routing file and is skipped). They check that Route Options, the
+avoid areas of a group and the Way become exactly the settings the server's map sends, that BRouter applies them
+in all three profiles, the routes' options in files, shared state and mesh packets, groups (list order, export,
+import, rename, delete), shape sizes, the MGRS grid (against the server map's own grid tests) and arrow heads.
+
+On an Android emulator: every Route Options control, groups (move, new group, hide, fold, rename, delete,
+export, import), shared shapes and their panel, the MGRS grid lines, arrow heads at three zooms, and the
+"Which One?" chooser. On an Android 12 phone (a release-signed build over 0.1.2, data kept): the grid at
+100 km, 10 km and 1 km with its numbers and square names, the grouped Markers list and Route Options in Edit
+Route. Not yet tried: routes with options on real routing data, the "Working out routes" note (on the emulator
+legs failed at once, without routing data), and Rename and Delete Group with shapes shared by a real server.
+
 ## Not tested yet
 
 A server whose Wi-Fi has no internet, a download of several gigabytes, a long drive or hike, and
